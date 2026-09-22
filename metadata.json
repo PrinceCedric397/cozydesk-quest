@@ -1,0 +1,6 @@
+{
+  "name": "CozyDesk Quest",
+  "description": "Interactive tactile desktop sandbox featuring retro mini-games, pixel art sketchpad, lo-fi synthesizer, ambient lighting, focus timer, pixel pet, decorative desk stickers, and community corkboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
