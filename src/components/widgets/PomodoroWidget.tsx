@@ -103,7 +103,7 @@ export const PomodoroWidget: React.FC<PomodoroWidgetProps> = ({ onSprintComplete
       <div className="flex w-full bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px] font-mono">
         <button
           onClick={() => switchMode('work')}
-          className={`flex-1 py-1 rounded transition ${
+          className={`flex-1 py-1.5 rounded transition cursor-pointer touch-manipulation min-h-[34px] ${
             mode === 'work'
               ? 'bg-amber-400 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
@@ -113,7 +113,7 @@ export const PomodoroWidget: React.FC<PomodoroWidgetProps> = ({ onSprintComplete
         </button>
         <button
           onClick={() => switchMode('shortBreak')}
-          className={`flex-1 py-1 rounded transition ${
+          className={`flex-1 py-1.5 rounded transition cursor-pointer touch-manipulation min-h-[34px] ${
             mode === 'shortBreak'
               ? 'bg-emerald-400 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
@@ -123,7 +123,7 @@ export const PomodoroWidget: React.FC<PomodoroWidgetProps> = ({ onSprintComplete
         </button>
         <button
           onClick={() => switchMode('longBreak')}
-          className={`flex-1 py-1 rounded transition ${
+          className={`flex-1 py-1.5 rounded transition cursor-pointer touch-manipulation min-h-[34px] ${
             mode === 'longBreak'
               ? 'bg-sky-400 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
@@ -151,30 +151,30 @@ export const PomodoroWidget: React.FC<PomodoroWidgetProps> = ({ onSprintComplete
       <div className="flex items-center gap-1.5 w-full">
         <button
           onClick={toggleTimer}
-          className={`flex-1 py-1.5 rounded-lg text-xs font-display font-bold active:scale-95 shadow-md transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2 rounded-xl text-xs font-display font-bold active:scale-95 shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation min-h-[44px] ${
             isRunning
               ? 'bg-[#ff9e80] hover:bg-amber-400 text-slate-950'
               : 'bg-amber-300 hover:bg-amber-200 text-slate-950'
           }`}
         >
-          {isRunning ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+          {isRunning ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
           <span>{isRunning ? 'Pause' : 'Start'}</span>
         </button>
 
         <button
           onClick={resetTimer}
-          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-mono active:scale-95 border border-slate-700"
+          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-mono active:scale-95 border border-slate-700 cursor-pointer touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Reset Timer"
         >
-          <RotateCcw className="w-3 h-3" />
+          <RotateCcw className="w-3.5 h-3.5" />
         </button>
 
         <button
           onClick={() => switchMode(mode === 'work' ? 'shortBreak' : 'work')}
-          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-[#ff9e80] rounded-lg text-xs active:scale-95 border border-slate-700"
+          className="p-2 bg-slate-800 hover:bg-slate-700 text-[#ff9e80] rounded-xl text-xs active:scale-95 border border-slate-700 cursor-pointer touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Toggle Focus / Break"
         >
-          <Coffee className="w-3 h-3" />
+          <Coffee className="w-3.5 h-3.5" />
         </button>
       </div>
 

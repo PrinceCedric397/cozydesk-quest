@@ -24,6 +24,7 @@ interface FirstStepsCardProps {
   steps: StarterStepsState;
   isCompleted: boolean;
   onOpenExpandedStudio: () => void;
+  onStepClick?: (id: keyof StarterStepsState) => void;
 }
 
 export const STARTER_STEP_DEFINITIONS = [
@@ -57,10 +58,13 @@ export const FirstStepsCard: React.FC<FirstStepsCardProps> = ({
   steps,
   isCompleted,
   onOpenExpandedStudio,
+  onStepClick,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
-      return localStorage.getItem('cozydesk_first_steps_collapsed') === 'true';
+      const saved = localStorage.getItem('cozydesk_first_steps_collapsed');
+      if (saved !== null) return saved === 'true';
+      return typeof window !== 'undefined' && window.innerWidth < 768;
     } catch {
       return false;
     }
@@ -84,7 +88,7 @@ export const FirstStepsCard: React.FC<FirstStepsCardProps> = ({
   return (
     <div
       id="tour-first-steps-card"
-      className="fixed bottom-14 right-3 sm:right-6 z-35 max-w-[290px] sm:max-w-xs select-none transition-all duration-300 pointer-events-auto"
+      className="fixed bottom-24 md:bottom-14 right-3 sm:right-6 z-35 max-w-[280px] sm:max-w-xs select-none transition-all duration-300 pointer-events-auto"
     >
       {isCollapsed ? (
         /* Minimized floating pill */
@@ -158,15 +162,19 @@ export const FirstStepsCard: React.FC<FirstStepsCardProps> = ({
                 <div
                   key={item.id}
                   onClick={() => {
-                    if (item.id === 'expanded_board_note' && !done) {
+                    playMechanicalClick('toggle', 0.06);
+                    if (item.id === 'expanded_board_note') {
                       onOpenExpandedStudio();
+                    } else if (onStepClick) {
+                      onStepClick(item.id);
                     }
                   }}
-                  className={`flex items-center justify-between p-1.5 px-2 rounded-xl text-xs font-mono transition border ${
+                  className={`flex items-center justify-between p-1.5 px-2 rounded-xl text-xs font-mono transition border cursor-pointer ${
                     done
                       ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
-                      : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50'
-                  } ${item.id === 'expanded_board_note' && !done ? 'cursor-pointer hover:border-amber-400/40' : ''}`}
+                      : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-amber-400/40'
+                  }`}
+                  title={done ? 'Completed! Click to locate on desk' : 'Click to locate widget on desk'}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-sm shrink-0">{item.icon}</span>

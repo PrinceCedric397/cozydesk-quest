@@ -1,62 +1,90 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Sparkles, Check, Compass } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ChevronLeft, ChevronRight, X, Sparkles, Rocket } from 'lucide-react';
 import { playMechanicalClick, playChime, playWinFanfare } from '../../utils/audio';
 
 export interface TourStepConfig {
   id: string;
+  badge: string;
   title: string;
-  targetId: string;
-  targetSelector?: string[];
-  content: string;
+  description: string;
+  target: string;
+  fallbackSelectors?: string[];
   preferredPlacement?: 'top' | 'bottom' | 'center';
+  targetId?: string;
+  targetSelector?: string[];
+  content?: string;
 }
 
-export const TOUR_STEPS: TourStepConfig[] = [
+export const tourSteps: TourStepConfig[] = [
   {
-    id: 'step-nav',
+    id: 'step-1-nav',
+    badge: 'HAKBANG 1 NG 6',
     title: 'Top Navigation & Status Bar',
-    targetId: 'tour-top-bar',
-    content: 'Dito mo makikita ang iyong Level at Daily Quests. Bawat galaw at laro mo ay may XP!',
+    description: 'Dito mo makikita ang iyong Level, XP progress bar, at Daily Quests. Bawat galaw at laro mo ay may XP!',
+    target: '#top-nav',
+    fallbackSelectors: ['#tour-top-bar', 'header'],
     preferredPlacement: 'bottom',
+    targetId: 'top-nav',
+    content: 'Dito mo makikita ang iyong Level, XP progress bar, at Daily Quests. Bawat galaw at laro mo ay may XP!',
   },
   {
-    id: 'step-gadgets',
+    id: 'step-2-gadgets',
+    badge: 'HAKBANG 2 NG 6',
     title: 'Draggable Desk Gadgets',
-    targetId: 'tour-gadgets-cluster',
-    targetSelector: ['widget-coffee', 'widget-pet', 'widget-lamp', 'widget-plant'],
-    content: 'Draggable lahat! Pwede mong i-reposition ang mga gamit sa desk, sumimsim ng kape, mag-alaga ng pixel pet, o i-toggle ang ilaw.',
+    description: 'Draggable lahat! Pwede mong i-reposition ang mga gamit sa desk, sumimsim ng kape, mag-alaga ng pixel pet, o i-toggle ang warm desk lamp.',
+    target: '#desk-gadgets-area',
+    fallbackSelectors: ['#widget-coffee', '#widget-lamp', '#widget-pet', '#widget-plant'],
     preferredPlacement: 'bottom',
+    targetId: 'desk-gadgets-area',
+    content: 'Draggable lahat! Pwede mong i-reposition ang mga gamit sa desk, sumimsim ng kape, mag-alaga ng pixel pet, o i-toggle ang warm desk lamp.',
   },
   {
-    id: 'step-audio-focus',
-    title: 'Lo-Fi Synth & Focus Tools',
-    targetId: 'tour-lofi-pomo',
-    targetSelector: ['widget-boombox', 'widget-pomodoro'],
-    content: 'Magpatugtog ng ambient Lo-Fi beats habang nag-aaral gamit ang built-in Pomodoro focus timer.',
+    id: 'step-3-synth-clock',
+    badge: 'HAKBANG 3 NG 6',
+    title: 'Lo-Fi Synth & Focus Clock',
+    description: 'Magpatugtog ng ambient procedural Lo-Fi tracks gamit ang Web Audio synth at mag-focus gamit ang Pomodoro timer.',
+    target: '#lofi-synth-card',
+    fallbackSelectors: ['#pomodoro-timer', '#widget-boombox', '#widget-pomodoro'],
     preferredPlacement: 'bottom',
+    targetId: 'lofi-synth-card',
+    content: 'Magpatugtog ng ambient procedural Lo-Fi tracks gamit ang Web Audio synth at mag-focus gamit ang Pomodoro timer.',
   },
   {
-    id: 'step-games',
-    title: 'Mini-Games (Tic-Tac-Toe)',
-    targetId: 'widget-tictactoe',
-    content: 'Kailangan ng quick break? Hamunin ang Retro AI sa Tic-Tac-Toe para sa bonus XP!',
+    id: 'step-4-tictactoe',
+    badge: 'HAKBANG 4 NG 6',
+    title: 'Retro Mini-Games (Tic-Tac-Toe)',
+    description: 'Kailangan ng quick study break? Hamunin ang Retro AI sa Tic-Tac-Toe para makakuha ng bonus XP!',
+    target: '#tictactoe-widget',
+    fallbackSelectors: ['#widget-tictactoe'],
     preferredPlacement: 'bottom',
+    targetId: 'tictactoe-widget',
+    content: 'Kailangan ng quick study break? Hamunin ang Retro AI sa Tic-Tac-Toe para makakuha ng bonus XP!',
   },
   {
-    id: 'step-corkboard',
+    id: 'step-5-corkboard',
+    badge: 'HAKBANG 5 NG 6',
     title: 'Expanded Corkboard Studio',
-    targetId: 'tour-expanded-board-btn',
-    content: 'Gusto mo bang magbasa o mag-iwan ng mensahe? Buksan ang Expanded Corkboard para sa infinite pannable bulletin board kung saan pwede kang mag-pin ng sarili mong notes kasama ang ibang bisita!',
+    description: "I-click ang 'Expanded Board' para sa infinite pannable bulletin board kung saan pwede kang mag-pin ng sticky notes at magbasa ng mensahe ng iba.",
+    target: '#btn-expanded-board',
+    fallbackSelectors: ['#tour-expanded-board-btn'],
     preferredPlacement: 'bottom',
+    targetId: 'btn-expanded-board',
+    content: "I-click ang 'Expanded Board' para sa infinite pannable bulletin board kung saan pwede kang mag-pin ng sticky notes at magbasa ng mensahe ng iba.",
   },
   {
-    id: 'step-footer',
-    title: 'Bottom Dock & Reset Tools',
-    targetId: 'tour-bottom-dock',
-    content: "Kung nagulo ang desk, i-click lang ang 'Reset Pos' para bumalik sa ayos ang lahat.",
+    id: 'step-6-footer',
+    badge: 'HAKBANG 6 NG 6',
+    title: 'Bottom Tools & Reset',
+    description: "Kung sakaling magulo ang desk, i-click lang ang 'Reset Pos' sa bottom toolbar para maibalik ang ayos ng lahat. Enjoy your cozy session!",
+    target: '#bottom-toolbar',
+    fallbackSelectors: ['#tour-bottom-dock', 'footer'],
     preferredPlacement: 'top',
+    targetId: 'bottom-toolbar',
+    content: "Kung sakaling magulo ang desk, i-click lang ang 'Reset Pos' sa bottom toolbar para maibalik ang ayos ng lahat. Enjoy your cozy session!",
   },
 ];
+
+export const TOUR_STEPS = tourSteps;
 
 export interface SpotlightTourProps {
   isActive?: boolean;
@@ -80,116 +108,177 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
   onComplete,
   onClose,
   onSkip,
-  onOpenExpandedStudio,
 }) => {
   const active = isOpen ?? isActive ?? false;
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
 
-  const step = TOUR_STEPS[currentStepIndex];
+  const prevActiveRef = useRef(false);
+  const step = tourSteps[currentStepIndex] || tourSteps[0];
 
-  const handleFinish = useCallback(() => {
+  const finishTour = useCallback(() => {
+    playWinFanfare();
+    try {
+      localStorage.setItem('cozydesk_tour_completed', 'true');
+      localStorage.setItem('has_seen_cozydesk_tour', 'true');
+    } catch (e) {
+      console.warn('[SpotlightTour] Could not persist completion state:', e);
+    }
     if (onComplete) onComplete();
     if (onClose) onClose();
   }, [onComplete, onClose]);
 
-  const handleCancel = useCallback(() => {
+  const skipTour = useCallback(() => {
+    playMechanicalClick('toggle', 0.08);
+    try {
+      localStorage.setItem('cozydesk_tour_completed', 'true');
+      localStorage.setItem('has_seen_cozydesk_tour', 'true');
+    } catch (e) {
+      console.warn('[SpotlightTour] Could not persist completion state:', e);
+    }
     if (onSkip) onSkip();
     if (onClose) onClose();
   }, [onSkip, onClose]);
 
-  // Calculate target bounding box
-  const updateTargetRect = useCallback(() => {
-    if (!active || !step) return;
+  // Defensive check and dynamic bounding rect calculation
+  const updateTargetRect = useCallback((indexToUse?: number) => {
+    if (!active) return;
+    const targetIndex = typeof indexToUse === 'number' ? indexToUse : currentStepIndex;
+    const currentStep = tourSteps[targetIndex];
+    if (!currentStep) return;
 
-    let elements: HTMLElement[] = [];
+    let targetElement: HTMLElement | null = null;
 
-    // Check targetSelector array first
-    if (step.targetSelector && step.targetSelector.length > 0) {
-      elements = step.targetSelector
-        .map((id) => document.getElementById(id))
-        .filter((el): el is HTMLElement => el !== null);
+    try {
+      if (currentStep.target) {
+        targetElement = document.querySelector(currentStep.target) as HTMLElement | null;
+      }
+
+      // Check fallback selectors if primary target was not found
+      if (!targetElement && currentStep.fallbackSelectors) {
+        for (const selector of currentStep.fallbackSelectors) {
+          const el = document.querySelector(selector) as HTMLElement | null;
+          if (el) {
+            targetElement = el;
+            break;
+          }
+        }
+      }
+
+      // Check legacy targetId
+      if (!targetElement && currentStep.targetId) {
+        const el = document.getElementById(currentStep.targetId);
+        if (el) targetElement = el;
+      }
+    } catch (err) {
+      console.warn(`[SpotlightTour] Selector lookup error for "${currentStep.target}":`, err);
     }
 
-    // Fallback to targetId
-    if (elements.length === 0) {
-      const el = document.getElementById(step.targetId);
-      if (el) elements = [el];
-    }
-
-    if (elements.length === 0) {
-      // Fallback center box if elements not yet attached
-      setTargetRect({
-        top: window.innerHeight * 0.35,
-        left: window.innerWidth * 0.2,
-        width: window.innerWidth * 0.6,
-        height: 200,
-      });
-      return;
-    }
-
-    // Calculate union bounding box of all target elements
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    elements.forEach((el) => {
-      const r = el.getBoundingClientRect();
-      minX = Math.min(minX, r.left);
-      minY = Math.min(minY, r.top);
-      maxX = Math.max(maxX, r.right);
-      maxY = Math.max(maxY, r.bottom);
-    });
-
-    // Guard against crazy coordinates
-    if (minX === Infinity) {
-      minX = 20;
-      maxX = window.innerWidth - 20;
-      minY = 60;
-      maxY = 260;
-    }
-
-    setTargetRect({
-      left: Math.max(4, minX),
-      top: Math.max(4, minY),
-      width: Math.min(window.innerWidth - 8, Math.max(60, maxX - minX)),
-      height: Math.min(window.innerHeight - 8, Math.max(40, maxY - minY)),
-    });
-  }, [isActive, step]);
-
-  useEffect(() => {
-    if (!isActive) {
-      setCurrentStepIndex(0);
+    if (!targetElement) {
+      console.warn(
+        `[SpotlightTour] Target DOM element for "${currentStep.target}" was not found. Gracefully centering modal.`
+      );
       setTargetRect(null);
       return;
     }
 
-    updateTargetRect();
-    const handleResize = () => updateTargetRect();
-    const handleScroll = () => updateTargetRect();
+    // Target exists: smooth scroll into view and update bounding box
+    try {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) {
+      console.warn('[SpotlightTour] scrollIntoView failed:', err);
+    }
 
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('scroll', handleScroll, true);
+    const rect = targetElement.getBoundingClientRect();
 
-    const timer = setTimeout(updateTargetRect, 60);
+    setTargetRect({
+      left: Math.max(4, rect.left),
+      top: Math.max(4, rect.top),
+      width: Math.min(window.innerWidth - 8, Math.max(40, rect.width)),
+      height: Math.min(window.innerHeight - 8, Math.max(30, rect.height)),
+    });
+  }, [active, currentStepIndex]);
+
+  // Method to render / align current step
+  const renderCurrentStep = useCallback((stepIndex?: number) => {
+    updateTargetRect(stepIndex);
+  }, [updateTargetRect]);
+
+  // Reset to Step 1 whenever opened (e.g. via '?' Help button in top bar)
+  useEffect(() => {
+    if (active && !prevActiveRef.current) {
+      setCurrentStepIndex(0);
+      updateTargetRect(0);
+    }
+    prevActiveRef.current = active;
+  }, [active, updateTargetRect]);
+
+  // Listen to step changes, window resize, and scroll to continuously sync highlight
+  useEffect(() => {
+    if (!active) {
+      setTargetRect(null);
+      return;
+    }
+
+    renderCurrentStep(currentStepIndex);
+
+    const handleSync = () => renderCurrentStep(currentStepIndex);
+    window.addEventListener('resize', handleSync);
+    window.addEventListener('scroll', handleSync, true);
+
+    // Track smooth scrolling animation updates
+    const t1 = setTimeout(handleSync, 100);
+    const t2 = setTimeout(handleSync, 300);
+    const t3 = setTimeout(handleSync, 500);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('scroll', handleScroll, true);
-      clearTimeout(timer);
+      window.removeEventListener('resize', handleSync);
+      window.removeEventListener('scroll', handleSync, true);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
     };
-  }, [active, currentStepIndex, updateTargetRect]);
+  }, [active, currentStepIndex, renderCurrentStep]);
 
-  // Keyboard navigation
+  // Step Navigation Handlers with Bounds Checking
+  const handleNext = useCallback(() => {
+    if (currentStepIndex < tourSteps.length - 1) {
+      const nextIndex = currentStepIndex + 1;
+      playMechanicalClick('key', 0.08);
+      playChime(480 + nextIndex * 40, 'triangle', 0.12, 0.07);
+      setCurrentStepIndex(nextIndex);
+      renderCurrentStep(nextIndex);
+    } else {
+      finishTour();
+    }
+  }, [currentStepIndex, finishTour, renderCurrentStep]);
+
+  const handleBack = useCallback(() => {
+    if (currentStepIndex > 0) {
+      const prevIndex = currentStepIndex - 1;
+      playMechanicalClick('subtle', 0.06);
+      setCurrentStepIndex(prevIndex);
+      renderCurrentStep(prevIndex);
+    }
+  }, [currentStepIndex, renderCurrentStep]);
+
+  const goToStep = useCallback((index: number) => {
+    if (index >= 0 && index < tourSteps.length) {
+      playMechanicalClick('key', 0.06);
+      playChime(460 + index * 35, 'triangle', 0.1, 0.06);
+      setCurrentStepIndex(index);
+      renderCurrentStep(index);
+    }
+  }, [renderCurrentStep]);
+
+  // Keyboard navigation: ArrowRight / Enter for Next, ArrowLeft for Back, Escape for Skip/Close
   useEffect(() => {
     if (!active) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        playMechanicalClick('toggle', 0.08);
-        handleCancel();
+        skipTour();
       } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
         e.preventDefault();
         handleNext();
@@ -201,35 +290,18 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  });
-
-  const handleNext = () => {
-    if (currentStepIndex < TOUR_STEPS.length - 1) {
-      playMechanicalClick('key', 0.08);
-      playChime(480 + currentStepIndex * 40, 'triangle', 0.12, 0.07);
-      setCurrentStepIndex((prev) => prev + 1);
-    } else {
-      playWinFanfare();
-      handleFinish();
-    }
-  };
-
-  const handleBack = () => {
-    if (currentStepIndex > 0) {
-      playMechanicalClick('subtle', 0.06);
-      setCurrentStepIndex((prev) => prev - 1);
-    }
-  };
+  }, [active, handleNext, handleBack, skipTour]);
 
   if (!active || !step) return null;
 
   // Compute Tooltip Coordinates clamped within screen
   const padding = 10;
-  const tooltipWidth = Math.min(380, window.innerWidth - 32);
-  const tooltipHeight = 210;
+  const tooltipWidth = Math.min(390, window.innerWidth - 32);
+  const tooltipHeight = 220;
 
-  let tooltipTop = 100;
-  let tooltipLeft = window.innerWidth / 2 - tooltipWidth / 2;
+  let tooltipTop = Math.max(20, window.innerHeight / 2 - tooltipHeight / 2);
+  let tooltipLeft = Math.max(16, window.innerWidth / 2 - tooltipWidth / 2);
+  const isCentered = !targetRect;
 
   if (targetRect) {
     tooltipLeft = Math.max(
@@ -250,20 +322,21 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
         tooltipTop = targetRect.top + targetRect.height + 16;
       }
     } else {
-      // Preferred placement bottom or default
+      // Preferred placement 'bottom' or default
       if (spaceBelow >= tooltipHeight + 20) {
         tooltipTop = targetRect.top + targetRect.height + 16;
       } else if (spaceAbove >= tooltipHeight + 20) {
         tooltipTop = targetRect.top - tooltipHeight - 16;
       } else {
-        // Center clamped
         tooltipTop = Math.max(16, Math.min(window.innerHeight - tooltipHeight - 16, targetRect.top + 20));
       }
     }
 
-    // Hard boundary clamping
+    // Clamping within visible viewport
     tooltipTop = Math.max(12, Math.min(window.innerHeight - tooltipHeight - 12, tooltipTop));
   }
+
+  const isFinalStep = currentStepIndex === tourSteps.length - 1;
 
   return (
     <div
@@ -271,7 +344,7 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
       className="fixed inset-0 z-[65] pointer-events-auto select-none"
     >
       {/* Target Spotlight Glow & Cutout with Box Shadow */}
-      {targetRect && (
+      {targetRect ? (
         <div
           style={{
             top: `${Math.max(0, targetRect.top - padding)}px`,
@@ -282,39 +355,42 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
           }}
           className="fixed rounded-2xl border-2 border-amber-400/90 pointer-events-none transition-all duration-300 ease-out z-[66] animate-pulse"
         />
+      ) : (
+        /* Full Backdrop fallback if target element not found */
+        <div className="fixed inset-0 bg-slate-950/78 backdrop-blur-[2px] pointer-events-none z-[66] transition-opacity duration-300" />
       )}
 
-      {/* Floating Tooltip Card */}
+      {/* Floating Tour Tooltip Card */}
       <div
         style={{
-          top: `${tooltipTop}px`,
-          left: `${tooltipLeft}px`,
+          top: isCentered ? '50%' : `${tooltipTop}px`,
+          left: isCentered ? '50%' : `${tooltipLeft}px`,
+          transform: isCentered ? 'translate(-50%, -50%)' : undefined,
           width: `${tooltipWidth}px`,
         }}
-        className="fixed z-[67] bg-slate-900/95 border-2 border-amber-400/80 rounded-2xl p-4 sm:p-5 shadow-[0_12px_40px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-3 transition-all duration-300 ease-out text-slate-100"
+        className="fixed z-[67] bg-slate-900/95 border-2 border-amber-400/80 rounded-2xl p-4 sm:p-5 shadow-[0_12px_44px_rgba(0,0,0,0.85)] backdrop-blur-md flex flex-col gap-3 transition-all duration-300 ease-out text-slate-100"
       >
-        {/* Header with Step Indicator and Close button */}
+        {/* Header with Badge & Close (X) button */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-            <span className="font-pixel text-[10px] font-bold text-amber-300 tracking-wider uppercase bg-amber-400/20 px-2 py-0.5 rounded border border-amber-400/40">
-              Hakbang {currentStepIndex + 1} ng {TOUR_STEPS.length}
+            <span className="font-pixel text-[11px] font-bold text-amber-300 tracking-wider uppercase bg-amber-400/20 px-2.5 py-0.5 rounded border border-amber-400/40">
+              {step.badge || `HAKBANG ${currentStepIndex + 1} NG ${tourSteps.length}`}
             </span>
           </div>
 
           <button
-            onClick={() => {
-              playMechanicalClick('toggle', 0.08);
-              handleCancel();
-            }}
+            type="button"
+            onClick={skipTour}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
-            title="Skip Tour (Esc)"
+            title="Close / Skip Tour (Esc)"
+            aria-label="Close Tour"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Title */}
+        {/* Step Title */}
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
           <h3 className="font-display font-extrabold text-sm sm:text-base text-white tracking-wide">
@@ -322,45 +398,42 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
           </h3>
         </div>
 
-        {/* Content */}
+        {/* Step Description */}
         <p className="text-xs sm:text-sm text-amber-100/90 leading-relaxed font-sans bg-slate-950/70 p-3 rounded-xl border border-slate-800">
-          {step.content}
+          {step.description || step.content}
         </p>
 
-        {/* Step Progress Dots */}
+        {/* Pagination Dots (Clickable to jump directly to any step) */}
         <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-1.5">
-            {TOUR_STEPS.map((_, i) => (
+          <div className="flex items-center gap-1.5" role="tablist" aria-label="Tour navigation dots">
+            {tourSteps.map((_, i) => (
               <button
                 key={`dot-${i}`}
-                onClick={() => {
-                  playMechanicalClick('key', 0.05);
-                  setCurrentStepIndex(i);
-                }}
-                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                type="button"
+                onClick={() => goToStep(i)}
+                className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                   i === currentStepIndex
-                    ? 'w-6 bg-amber-400'
+                    ? 'w-7 bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
                     : i < currentStepIndex
-                    ? 'w-2 bg-emerald-400/70'
-                    : 'w-2 bg-slate-700 hover:bg-slate-600'
+                    ? 'w-2.5 bg-emerald-400/80 hover:bg-emerald-300'
+                    : 'w-2.5 bg-slate-700 hover:bg-slate-500'
                 }`}
-                title={`Go to step ${i + 1}`}
+                title={`Pumunta sa Hakbang ${i + 1}: ${tourSteps[i].title}`}
+                aria-label={`Hakbang ${i + 1}`}
               />
             ))}
           </div>
 
           <span className="text-[10px] font-mono text-slate-400">
-            [Arrow keys • Esc]
+            [← Back • Next → • Esc]
           </span>
         </div>
 
-        {/* Action Controls */}
+        {/* Action Controls (Skip, Back, Next / Get Started) */}
         <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
           <button
-            onClick={() => {
-              playMechanicalClick('toggle', 0.08);
-              handleCancel();
-            }}
+            type="button"
+            onClick={skipTour}
             className="text-xs font-mono text-slate-400 hover:text-slate-200 px-2 py-1.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
           >
             Skip Tour
@@ -369,6 +442,7 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
           <div className="flex items-center gap-2">
             {currentStepIndex > 0 && (
               <button
+                type="button"
                 onClick={handleBack}
                 className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs rounded-xl border border-slate-700 transition flex items-center gap-1 active:scale-95 cursor-pointer"
               >
@@ -378,14 +452,15 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
             )}
 
             <button
+              type="button"
               onClick={handleNext}
-              className="px-4 py-1.5 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-display font-extrabold text-xs rounded-xl shadow-md active:scale-95 transition flex items-center gap-1 cursor-pointer border border-amber-200"
+              className="px-4 py-1.5 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-display font-extrabold text-xs rounded-xl shadow-md active:scale-95 transition flex items-center gap-1.5 cursor-pointer border border-amber-200"
             >
-              <span>{currentStepIndex === TOUR_STEPS.length - 1 ? 'Tapusin Tour' : 'Next'}</span>
-              {currentStepIndex === TOUR_STEPS.length - 1 ? (
-                <Check className="w-3.5 h-3.5 stroke-[3]" />
-              ) : (
+              <span>{isFinalStep ? 'Get Started! 🚀' : 'Next >'}</span>
+              {!isFinalStep ? (
                 <ChevronRight className="w-3.5 h-3.5 stroke-[3]" />
+              ) : (
+                <Rocket className="w-3.5 h-3.5 stroke-[2.5]" />
               )}
             </button>
           </div>

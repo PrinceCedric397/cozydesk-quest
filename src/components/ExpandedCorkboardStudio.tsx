@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
+  ArrowLeft,
   X,
   Plus,
   Search,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { CorkboardNote } from '../types';
 import { AddPolaroidModal } from './AddPolaroidModal';
+import { getWashiTapeOption, FILM_GRAIN_SVG_DATA } from '../data/curatedPolaroids';
 import {
   playPinTackSound,
   playStampSound,
@@ -146,7 +148,13 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   const [scale, setScale] = useState<number>(0.65);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showMinimap, setShowMinimap] = useState(true);
+  const [showMinimap, setShowMinimap] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768; // On mobile, collapsed by default to avoid covering canvas
+    }
+    return true;
+  });
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
 
   // Synchronous Refs to eliminate race conditions and stale closures during zoom/pan
   const scaleRef = useRef<number>(0.65);
@@ -502,6 +510,8 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
 
   // Pointer Up on Canvas
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const hadMoved = panStartRef.current.hasMoved;
+
     if (isDraggingCanvas) {
       setIsDraggingCanvas(false);
       try {
@@ -517,6 +527,34 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       }
       activeNoteDragRef.current = null;
       playPinTackSound(0.08);
+      return;
+    }
+
+    // Touch double-tap detection to pin note anywhere on canvas
+    if (!hadMoved) {
+      const now = Date.now();
+      const prevTap = lastTapRef.current;
+      if (prevTap && now - prevTap.time < 350) {
+        const dist = Math.hypot(e.clientX - prevTap.x, e.clientY - prevTap.y);
+        if (dist < 30 && containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const clientX = e.clientX - rect.left;
+          const clientY = e.clientY - rect.top;
+          const boardX = Math.round((clientX - panRef.current.x) / scaleRef.current);
+          const boardY = Math.round((clientY - panRef.current.y) / scaleRef.current);
+
+          if (boardX > 80 && boardX < BOARD_WIDTH - 200 && boardY > 80 && boardY < BOARD_HEIGHT - 200) {
+            setPendingPinCoords({ x: boardX, y: boardY });
+            setIsAnonymous(true);
+            setModalAuthor('Anonymous');
+            setIsAddModalOpen(true);
+            playPinTackSound(0.1);
+            lastTapRef.current = null;
+            return;
+          }
+        }
+      }
+      lastTapRef.current = { time: now, x: e.clientX, y: e.clientY };
     }
   };
 
@@ -709,133 +747,245 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   return (
     <div className="fixed inset-0 z-50 bg-[#090b10] text-slate-100 flex flex-col select-none overflow-hidden animate-fade-in">
       {/* Top Floating Studio Command Bar */}
-      <header className="relative z-40 px-3 sm:px-6 py-2.5 bg-slate-900/95 border-b border-amber-900/50 backdrop-blur-md flex items-center justify-between shadow-2xl">
-        {/* Brand & Stats */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#ff9e80] to-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-md border border-amber-300/40">
-            <Pin className="w-5 h-5 fill-slate-950 text-slate-950" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-display font-bold text-sm sm:text-base text-white flex items-center gap-2">
-                <span>Expanded Corkboard Studio</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40 font-semibold">
-                  2800 × 2200 px
-                </span>
-              </h2>
+      <header className="relative z-40 bg-slate-900/95 border-b border-amber-900/50 backdrop-blur-md shadow-2xl">
+        {/* Main Header Row */}
+        <div className="px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2">
+          {/* Left: Back Button & Board Title */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+            {/* Primary Back Button */}
+            <button
+              onClick={() => {
+                playMechanicalClick('toggle', 0.08);
+                onClose();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-amber-300 hover:text-amber-200 border border-amber-400/40 rounded-xl text-xs font-display font-bold transition active:scale-95 shadow-md cursor-pointer touch-manipulation min-h-[38px] shrink-0"
+              title="Back to Cozy Desk [Esc]"
+              aria-label="Back to Cozy Desk"
+            >
+              <ArrowLeft className="w-4 h-4 text-amber-400" />
+              <span>Back</span>
+            </button>
+
+            <div className="hidden md:flex w-9 h-9 rounded-xl bg-gradient-to-br from-[#ff9e80] to-amber-500 text-slate-950 items-center justify-center font-bold shadow-md border border-amber-300/40 shrink-0">
+              <Pin className="w-5 h-5 fill-slate-950 text-slate-950" />
             </div>
-            <p className="text-[10px] font-mono text-slate-400 hidden md:flex items-center gap-2">
-              <span>Pannable & Zoomable Tactile Bulletin Canvas</span>
-              <span>•</span>
-              <span className="text-emerald-400">● {notes.length} Notes Pinned</span>
-              <span>•</span>
-              <span>Double-click canvas to pin</span>
-            </p>
+
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h2 className="font-display font-bold text-xs sm:text-base text-white flex items-center gap-1.5 truncate">
+                  <span className="truncate">Corkboard</span>
+                  <span className="text-[9px] sm:text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40 font-semibold shrink-0">
+                    2800 × 2200
+                  </span>
+                </h2>
+              </div>
+              <p className="text-[10px] font-mono text-slate-400 hidden lg:flex items-center gap-2">
+                <span>Tactile Bulletin Canvas</span>
+                <span>•</span>
+                <span className="text-emerald-400">● {notes.length} Notes Pinned</span>
+                <span>•</span>
+                <span>Double-click canvas to pin</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Center (Desktop): Search & Quick Add */}
+          <div className="hidden md:flex items-center gap-2 max-w-sm flex-1 mx-4">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search corkboard notes..."
+                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-mono"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                setPendingPinCoords(null);
+                setIsAnonymous(true);
+                setModalAuthor('Anonymous');
+                setIsAddModalOpen(true);
+                playPinTackSound(0.08);
+              }}
+              className="px-3 py-1.5 bg-[#ff9e80] hover:bg-amber-400 text-slate-950 font-display font-bold text-xs rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5 whitespace-nowrap cursor-pointer touch-manipulation min-h-[36px]"
+              title="Pin a brand new note on the board"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Pin Note</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setPendingPinCoords(null);
+                setIsAddPolaroidModalOpen(true);
+                playPinTackSound(0.08);
+              }}
+              className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 font-display font-bold text-xs rounded-xl transition active:scale-95 shadow-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer touch-manipulation min-h-[36px]"
+              title="Pin a curated polaroid with washi tape accent"
+            >
+              <Camera className="w-3.5 h-3.5 text-amber-400" />
+              <span>Polaroid</span>
+            </button>
+          </div>
+
+          {/* Right Controls */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Mobile-only Quick Add Buttons */}
+            <div className="flex md:hidden items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setPendingPinCoords(null);
+                  setIsAnonymous(true);
+                  setModalAuthor('Anonymous');
+                  setIsAddModalOpen(true);
+                  playPinTackSound(0.08);
+                }}
+                className="px-2.5 py-1.5 bg-[#ff9e80] hover:bg-amber-400 text-slate-950 font-display font-bold text-xs rounded-xl transition active:scale-95 shadow-md flex items-center gap-1 whitespace-nowrap cursor-pointer touch-manipulation min-h-[38px]"
+                title="Pin a note"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Pin</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPendingPinCoords(null);
+                  setIsAddPolaroidModalOpen(true);
+                  playPinTackSound(0.08);
+                }}
+                className="p-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl transition active:scale-95 shadow-sm flex items-center justify-center cursor-pointer touch-manipulation min-h-[38px] min-w-[38px]"
+                title="Pin a curated polaroid"
+                aria-label="Pin a polaroid"
+              >
+                <Camera className="w-4 h-4 text-amber-400" />
+              </button>
+            </div>
+
+            {/* Desktop Zoom Controls */}
+            <div className="hidden md:flex items-center bg-slate-950 border border-slate-800 rounded-xl p-0.5 shadow-inner">
+              <button
+                onClick={handleZoomOut}
+                className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg active:scale-90 transition cursor-pointer"
+                title="Zoom Out (-)"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+
+              <span
+                onClick={handleZoom100}
+                className="px-2 text-[11px] font-mono font-bold text-amber-300 cursor-pointer hover:underline"
+                title="Click to reset to 100%"
+              >
+                {Math.round(scale * 100)}%
+              </span>
+
+              <button
+                onClick={handleZoomIn}
+                className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg active:scale-90 transition cursor-pointer"
+                title="Zoom In (+)"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+
+              <button
+                onClick={handleZoom100}
+                className="px-1.5 py-1 hover:bg-slate-800 text-[10px] font-mono font-bold text-slate-300 hover:text-white rounded-md active:scale-90 transition cursor-pointer"
+                title="100% Native Scale"
+              >
+                100%
+              </button>
+
+              <button
+                onClick={() => centerCanvas()}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-sky-300 rounded-md active:scale-90 transition cursor-pointer flex items-center gap-1"
+                title="Center Canvas in viewport"
+              >
+                <Compass className="w-3 h-3" />
+                <span>Center</span>
+              </button>
+            </div>
+
+            {/* Desktop Close Button */}
+            <button
+              onClick={() => {
+                playMechanicalClick('toggle', 0.08);
+                onClose();
+              }}
+              className="hidden md:flex px-3 py-1.5 bg-slate-800 hover:bg-red-950/70 hover:text-red-300 hover:border-red-500/40 text-slate-200 border border-slate-700 rounded-xl text-xs font-display font-bold items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer ml-1"
+              title="Return to Cozy Desk [Esc]"
+            >
+              <X className="w-4 h-4" />
+              <span>Desk (Esc)</span>
+            </button>
           </div>
         </div>
 
-        {/* Center: Search & Add */}
-        <div className="flex items-center gap-2 max-w-xs sm:max-w-sm flex-1 mx-2 sm:mx-6">
+        {/* Mobile Secondary Row: Search input + Compact Zoom toolbar */}
+        <div className="md:hidden px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center gap-2">
+          {/* Mobile Search Input */}
           <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search corkboard notes..."
-              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-8 pr-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-mono"
+              className="w-full bg-slate-900 border border-slate-700/80 rounded-lg pl-8 pr-6 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-mono"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer p-0.5"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          <button
-            onClick={() => {
-              setPendingPinCoords(null);
-              setIsAnonymous(true);
-              setModalAuthor('Anonymous');
-              setIsAddModalOpen(true);
-              playPinTackSound(0.08);
-            }}
-            className="px-3 py-1 bg-[#ff9e80] hover:bg-amber-400 text-slate-950 font-display font-bold text-xs rounded-lg transition active:scale-95 shadow-md flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-            title="Pin a brand new note on the board"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">Pin Note</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setPendingPinCoords(null);
-              setIsAddPolaroidModalOpen(true);
-              playPinTackSound(0.08);
-            }}
-            className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 font-display font-bold text-xs rounded-lg transition active:scale-95 shadow-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-            title="Pin a curated polaroid with washi tape accent"
-          >
-            <Camera className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden xs:inline">Polaroid</span>
-          </button>
-        </div>
-
-        {/* Right: Zoom & Close Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Zoom Step Controls */}
-          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-0.5 shadow-inner">
+          {/* Mobile Zoom Controls */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 shrink-0 text-xs font-mono">
             <button
               onClick={handleZoomOut}
-              className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg active:scale-90 transition cursor-pointer"
-              title="Zoom Out (-)"
+              className="p-1 hover:bg-slate-800 text-slate-300 rounded active:scale-90 cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center touch-manipulation"
+              title="Zoom Out"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <ZoomOut className="w-3 h-3" />
             </button>
-
             <span
               onClick={handleZoom100}
-              className="px-2 text-[11px] font-mono font-bold text-amber-300 cursor-pointer hover:underline"
-              title="Click to reset to 100%"
+              className="px-1 text-[10px] font-bold text-amber-300 cursor-pointer"
             >
               {Math.round(scale * 100)}%
             </span>
-
             <button
               onClick={handleZoomIn}
-              className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg active:scale-90 transition cursor-pointer"
-              title="Zoom In (+)"
+              className="p-1 hover:bg-slate-800 text-slate-300 rounded active:scale-90 cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center touch-manipulation"
+              title="Zoom In"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
+              <ZoomIn className="w-3 h-3" />
             </button>
-
-            <div className="w-[1px] h-4 bg-slate-800 mx-1" />
-
-            <button
-              onClick={handleZoom100}
-              className="px-1.5 py-1 hover:bg-slate-800 text-[10px] font-mono font-bold text-slate-300 hover:text-white rounded-md active:scale-90 transition cursor-pointer"
-              title="100% Native Scale"
-            >
-              100%
-            </button>
-
             <button
               onClick={() => centerCanvas()}
-              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-sky-300 rounded-md active:scale-90 transition cursor-pointer flex items-center gap-1"
-              title="Center Canvas in viewport"
+              className="p-1 bg-slate-800 text-sky-300 rounded active:scale-90 ml-0.5 cursor-pointer flex items-center justify-center min-w-[28px] min-h-[28px] touch-manipulation"
+              title="Center"
             >
               <Compass className="w-3 h-3" />
-              <span className="hidden sm:inline">Center</span>
             </button>
           </div>
-
-          {/* Close / Return to Desk */}
-          <button
-            onClick={() => {
-              playMechanicalClick('toggle', 0.08);
-              onClose();
-            }}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-red-950/70 hover:text-red-300 hover:border-red-500/40 text-slate-200 border border-slate-700 rounded-xl text-xs font-display font-bold flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer ml-1"
-            title="Return to Cozy Desk [Esc or F]"
-          >
-            <X className="w-4 h-4" />
-            <span className="hidden sm:inline">Desk (Esc)</span>
-          </button>
         </div>
       </header>
 
@@ -1043,35 +1193,66 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                   onPointerDown={(e) => handleNotePointerDown(note.id, coords.x, coords.y, e)}
                 >
                   {/* Washi Tape Accent */}
-                  <div
-                    style={{
-                      backgroundColor: note.washiTapeColor || 'rgba(254, 240, 138, 0.85)',
-                    }}
-                    className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-28 h-6 washi-tape -rotate-2 z-20 pointer-events-none"
-                  />
+                  {(() => {
+                    const washi = getWashiTapeOption(note.washiTapeColor || 'butter');
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: washi.color,
+                          backgroundImage: washi.patternCss,
+                          backgroundSize: washi.backgroundSize,
+                        }}
+                        className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-28 h-6 washi-tape -rotate-2 z-20 pointer-events-none rounded-[1px] shadow-sm"
+                      />
+                    );
+                  })()}
 
                   {/* Pushpin */}
                   <div className="absolute -top-2 left-3 z-30">
                     <div className="pushpin-head bg-red-600 shadow-md" />
                   </div>
 
-                  {/* Photo Area with Gradient and Scene Art */}
-                  <div
-                    className={`w-full h-40 rounded-sm bg-gradient-to-br ${
-                      note.polaroidGradient || 'from-slate-700 via-sky-900 to-indigo-950'
-                    } p-3.5 flex flex-col justify-between text-white relative overflow-hidden shadow-inner border border-black/10 mt-1`}
-                  >
-                    <div className="text-3xl filter drop-shadow">
-                      {note.polaroidPhoto || note.emoji || '📸'}
-                    </div>
-                    <div className="relative z-10">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-amber-200 font-bold">
-                        {note.polaroidDate || 'OCT 2026'}
+                  {/* Photo Area with Gradient or Custom Photo Image */}
+                  <div className="w-full h-40 rounded-sm bg-slate-950 relative overflow-hidden shadow-inner border border-black/10 mt-1">
+                    {note.polaroidImageUrl ? (
+                      <div className="w-full h-full relative">
+                        <img
+                          src={note.polaroidImageUrl}
+                          alt={note.polaroidTitle || 'Polaroid'}
+                          className="w-full h-full object-cover"
+                        />
+                        {note.polaroidFilter === 'cozy-grain' && (
+                          <div
+                            style={{ backgroundImage: FILM_GRAIN_SVG_DATA }}
+                            className="absolute inset-0 pointer-events-none mix-blend-overlay opacity-30"
+                          />
+                        )}
+                        {note.polaroidFilter === 'soft-bloom' && (
+                          <div className="absolute inset-0 pointer-events-none bg-amber-100/20 mix-blend-screen" />
+                        )}
+                        <div className="absolute bottom-2 left-2 z-10 bg-black/60 px-2 py-0.5 rounded text-[10px] font-mono text-amber-200 font-bold tracking-wider backdrop-blur-xs">
+                          {note.polaroidDate || 'OCT 2026'}
+                        </div>
                       </div>
-                      <div className="text-xs font-display font-bold leading-tight drop-shadow truncate">
-                        {note.polaroidTitle || note.name}
+                    ) : (
+                      <div
+                        className={`w-full h-full bg-gradient-to-br ${
+                          note.polaroidGradient || 'from-slate-700 via-sky-900 to-indigo-950'
+                        } p-3.5 flex flex-col justify-between text-white relative`}
+                      >
+                        <div className="text-3xl filter drop-shadow">
+                          {note.polaroidPhoto || note.emoji || '📸'}
+                        </div>
+                        <div className="relative z-10">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-amber-200 font-bold">
+                            {note.polaroidDate || 'OCT 2026'}
+                          </div>
+                          <div className="text-xs font-display font-bold leading-tight drop-shadow truncate">
+                            {note.polaroidTitle || note.name}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Handwritten Caption */}
@@ -1287,8 +1468,8 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
         </div>
       )}
 
-      {/* Floating Bottom Studio Controls & Mini-Map Radar */}
-      <div className="absolute bottom-4 left-4 z-40 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-700/80 shadow-2xl">
+      {/* Floating Bottom Studio Controls (Desktop only to prevent clutter on mobile) */}
+      <div className="hidden sm:flex absolute bottom-4 left-4 z-40 items-center gap-2 bg-slate-900/90 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-700/80 shadow-2xl">
         <span className="text-[11px] font-mono text-slate-300 flex items-center gap-2">
           <Move className="w-3.5 h-3.5 text-amber-400" />
           <span>[Drag] Pan</span>
@@ -1301,17 +1482,17 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
         </span>
       </div>
 
-      {/* Interactive Floating Minimap / Viewport Radar */}
+      {/* Interactive Floating Minimap / Viewport Radar (Collapsible & Mobile friendly) */}
       {showMinimap && (
-        <div className="absolute bottom-4 right-4 z-40 bg-slate-900/95 backdrop-blur-md p-2 rounded-2xl border border-amber-900/60 shadow-2xl flex flex-col gap-1.5">
+        <div className="absolute bottom-4 right-4 z-40 bg-slate-900/95 backdrop-blur-md p-2 rounded-2xl border border-amber-900/60 shadow-2xl flex flex-col gap-1.5 max-w-[210px] sm:max-w-none">
           <div className="flex items-center justify-between text-[10px] font-mono text-slate-300 px-1">
-            <span className="flex items-center gap-1">
-              <Compass className="w-3 h-3 text-amber-400" />
+            <span className="flex items-center gap-1 font-bold text-amber-300">
+              <Compass className="w-3.5 h-3.5 text-amber-400" />
               <span>Canvas Radar</span>
             </span>
             <button
               onClick={() => setShowMinimap(false)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white p-1 touch-manipulation text-xs"
               title="Hide minimap"
             >
               ✕
@@ -1320,7 +1501,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
 
           <div
             onClick={handleMinimapClick}
-            style={{ width: `${minimapW}px`, height: `${minimapH}px` }}
+            style={{ width: `${Math.min(minimapW, 190)}px`, height: `${Math.round(minimapH * (Math.min(minimapW, 190) / minimapW))}px` }}
             className="cork-texture rounded-lg border-2 border-amber-950/80 relative overflow-hidden cursor-crosshair shadow-inner"
             title="Click to pan camera"
           >
@@ -1331,11 +1512,11 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                 <div
                   key={`mini-${n.id}`}
                   style={{
-                    left: `${pos.x * minimapScale}px`,
-                    top: `${pos.y * minimapScale}px`,
+                    left: `${pos.x * minimapScale * (Math.min(minimapW, 190) / minimapW)}px`,
+                    top: `${pos.y * minimapScale * (Math.min(minimapW, 190) / minimapW)}px`,
                     backgroundColor: n.color,
                   }}
-                  className="absolute w-3.5 h-2.5 rounded-[1px] shadow-sm border border-black/20 pointer-events-none"
+                  className="absolute w-2.5 h-2 rounded-[1px] shadow-sm border border-black/20 pointer-events-none"
                 />
               );
             })}
@@ -1343,10 +1524,10 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
             {/* Camera Viewport Indicator Box */}
             <div
               style={{
-                left: `${viewMiniX}px`,
-                top: `${viewMiniY}px`,
-                width: `${viewMiniW}px`,
-                height: `${viewMiniH}px`,
+                left: `${viewMiniX * (Math.min(minimapW, 190) / minimapW)}px`,
+                top: `${viewMiniY * (Math.min(minimapW, 190) / minimapW)}px`,
+                width: `${viewMiniW * (Math.min(minimapW, 190) / minimapW)}px`,
+                height: `${viewMiniH * (Math.min(minimapW, 190) / minimapW)}px`,
               }}
               className="absolute border-2 border-amber-400 bg-amber-400/20 rounded shadow-[0_0_12px_rgba(251,191,36,0.6)] pointer-events-none transition-all duration-75"
             />
@@ -1358,16 +1539,19 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       {!showMinimap && (
         <button
           onClick={() => setShowMinimap(true)}
-          className="absolute bottom-4 right-4 z-40 px-3 py-1.5 bg-slate-900/90 text-amber-300 border border-slate-700 rounded-xl text-xs font-mono shadow-2xl cursor-pointer hover:bg-slate-800"
+          className="absolute bottom-4 right-4 z-40 px-3 py-2 bg-slate-900/90 text-amber-300 border border-slate-700 rounded-xl text-xs font-mono shadow-2xl cursor-pointer hover:bg-slate-800 touch-manipulation min-h-[44px] flex items-center gap-1.5"
         >
-          🗺️ Show Radar
+          <span>🗺️</span>
+          <span>Radar</span>
         </button>
       )}
 
-      {/* Add Note Modal inside Studio */}
+      {/* Add Note Modal inside Studio (Responsive: Mobile Bottom-Sheet, Desktop Centered) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border-2 border-[#ff9e80] rounded-2xl w-full max-w-lg shadow-2xl p-5 flex flex-col gap-3">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+          <div className="bg-slate-900 border-t-2 sm:border-2 border-[#ff9e80] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl p-4 sm:p-5 flex flex-col gap-3 max-h-[85dvh] overflow-y-auto">
+            {/* Grab handle for mobile bottom-sheet */}
+            <div className="w-10 h-1.5 bg-slate-600 rounded-full mx-auto sm:hidden shrink-0" />
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="text-xl">📌</span>
@@ -1377,7 +1561,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className="text-slate-400 hover:text-white p-2 rounded-lg touch-manipulation min-w-[36px] min-h-[36px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>

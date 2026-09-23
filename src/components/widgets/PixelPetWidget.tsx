@@ -50,6 +50,7 @@ export const PixelPetWidget: React.FC<PixelPetWidgetProps> = ({ onPetQuest }) =>
     play8BitChirp('chirp');
     setCharIndex((prev) => (prev + 1) % PET_CHARACTERS.length);
     setDialogue('Hello! 👋');
+    onPetQuest();
   };
 
   return (
@@ -93,19 +94,19 @@ export const PixelPetWidget: React.FC<PixelPetWidgetProps> = ({ onPetQuest }) =>
       <div className="flex items-center gap-1.5 w-full">
         <button
           onClick={handleFeed}
-          className="flex-1 py-1 bg-pink-500 hover:bg-pink-400 text-white rounded-lg text-[10px] font-mono font-bold shadow-md active:scale-90 transition flex items-center justify-center gap-1"
+          className="flex-1 py-2 bg-pink-500 hover:bg-pink-400 text-white rounded-xl text-xs font-mono font-bold shadow-md active:scale-95 transition flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation min-h-[42px]"
           title="Feed food"
         >
-          <Utensils className="w-2.5 h-2.5" />
+          <Utensils className="w-3.5 h-3.5" />
           <span>Feed</span>
         </button>
 
         <button
           onClick={handlePet}
-          className="flex-1 py-1 bg-purple-500 hover:bg-purple-400 text-white rounded-lg text-[10px] font-mono font-bold shadow-md active:scale-90 transition flex items-center justify-center gap-1"
+          className="flex-1 py-2 bg-purple-500 hover:bg-purple-400 text-white rounded-xl text-xs font-mono font-bold shadow-md active:scale-95 transition flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation min-h-[42px]"
           title="Pet & cuddle"
         >
-          <Sparkles className="w-2.5 h-2.5" />
+          <Sparkles className="w-3.5 h-3.5" />
           <span>Cuddle</span>
         </button>
       </div>

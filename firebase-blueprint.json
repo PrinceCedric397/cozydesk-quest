@@ -1,0 +1,164 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile, desk layout preferences, and quest progress",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "xp": {
+          "type": "number"
+        },
+        "quests": {
+          "type": "array"
+        },
+        "starterSteps": {
+          "type": "object"
+        },
+        "stickyNotes": {
+          "type": "array"
+        },
+        "positions": {
+          "type": "object"
+        },
+        "skyMode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "lampLighting": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CorkboardNote": {
+      "title": "CorkboardNote",
+      "description": "Shared community bulletin corkboard note or polaroid",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "color": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "fontClass": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "emoji": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "reactions": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "isPolaroid": {
+          "type": "boolean"
+        },
+        "polaroidTitle": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "polaroidPhoto": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "polaroidGradient": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "polaroidDate": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "washiTapeColor": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "authorId",
+        "name",
+        "message",
+        "color",
+        "fontClass",
+        "emoji",
+        "reactions",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "User"
+      },
+      "description": "Stores user personal desk state, XP, completed quests, and preferences"
+    },
+    "/corkboard_notes/{noteId}": {
+      "schema": {
+        "$ref": "CorkboardNote"
+      },
+      "description": "Stores community corkboard bulletin notes and polaroid memories"
+    }
+  }
+}

@@ -40,12 +40,15 @@ export interface CorkboardNote {
   rotation?: number;
   category?: 'memo' | 'goal' | 'quote' | 'polaroid';
   authorTag?: string;
+  authorId?: string;
   isPolaroid?: boolean;
   polaroidPhoto?: string;
   polaroidGradient?: string;
   polaroidDate?: string;
   polaroidTitle?: string;
   washiTapeColor?: string;
+  polaroidImageUrl?: string;
+  polaroidFilter?: string;
 }
 
 export interface Quest {
@@ -59,6 +62,7 @@ export interface Quest {
 
 export type TttPlayer = 'X' | 'O';
 export type TttCell = TttPlayer | null;
+export type TttDifficulty = 'balanced' | 'chill' | 'pro';
 
 export interface TttScore {
   x: number;

@@ -10,6 +10,7 @@ import {
   getLoFiVolume,
   setLoFiBeatEnabled,
   getLoFiBeatEnabled,
+  getIsLoFiPlaying,
 } from '../../utils/audio';
 
 interface LoFiRadioWidgetProps {
@@ -27,7 +28,7 @@ const TRACKS = [
 
 export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest }) => {
   const [trackIndex, setTrackIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(() => getIsLoFiPlaying());
   const [pulse, setPulse] = useState(false);
   const [drumsEnabled, setDrumsEnabled] = useState(() => getLoFiBeatEnabled());
   const [volume, setVolume] = useState(() => Math.max(0.14, getLoFiVolume()));
@@ -36,8 +37,17 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
 
   useEffect(() => {
     setLoFiVolume(volume);
+    if (getIsLoFiPlaying()) {
+      setIsPlaying(true);
+    }
+
+    const interval = setInterval(() => {
+      const active = getIsLoFiPlaying();
+      setIsPlaying((prev) => (prev !== active ? active : prev));
+    }, 400);
+
     return () => {
-      stopLoFi();
+      clearInterval(interval);
     };
   }, []);
 
@@ -45,6 +55,7 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
     const val = parseFloat(e.target.value);
     setVolume(val);
     setLoFiVolume(val);
+    onPlayQuest();
   };
 
   const handleToggleBeat = () => {
@@ -52,6 +63,7 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
     const nextVal = !drumsEnabled;
     setDrumsEnabled(nextVal);
     setLoFiBeatEnabled(nextVal);
+    onPlayQuest();
   };
 
   const handleTogglePlay = () => {
@@ -62,11 +74,11 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
       startLoFi(currentTrack.key, () => {
         setPulse((p) => !p);
       }, volume);
-      onPlayQuest();
     } else {
       setIsPlaying(false);
       stopLoFi();
     }
+    onPlayQuest();
   };
 
   const handleSelectTrack = (idx: number) => {
@@ -80,6 +92,7 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
         setPulse((p) => !p);
       }, volume);
     }
+    onPlayQuest();
   };
 
   const handleSkip = (dir: number) => {
@@ -197,14 +210,14 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
         {/* Beat Toggle */}
         <button
           onClick={handleToggleBeat}
-          className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono border transition flex items-center gap-1 cursor-pointer ${
+          className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-mono border transition flex items-center gap-1 cursor-pointer touch-manipulation min-h-[34px] ${
             drumsEnabled
               ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
               : 'bg-slate-800 text-slate-400 border-slate-700'
           }`}
           title={drumsEnabled ? 'Drums are ON (Click to hear ambient chords only)' : 'Drums are OFF (Click to enable Lo-Fi beat)'}
         >
-          <Disc3 className={`w-3 h-3 ${drumsEnabled ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} style={{ animationDuration: '4s' }} />
+          <Disc3 className={`w-3.5 h-3.5 ${drumsEnabled ? 'text-amber-400 animate-spin' : 'text-slate-500'}`} style={{ animationDuration: '4s' }} />
           <span>{drumsEnabled ? 'BEAT' : 'CHILL'}</span>
         </button>
       </div>
@@ -213,30 +226,30 @@ export const LoFiRadioWidget: React.FC<LoFiRadioWidgetProps> = ({ onPlayQuest })
       <div className="flex items-center justify-between gap-1.5 pt-0.5">
         <button
           onClick={() => handleSkip(-1)}
-          className="p-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono active:scale-95 transition cursor-pointer"
+          className="p-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono active:scale-95 transition cursor-pointer touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Previous Track"
         >
-          <SkipBack className="w-3.5 h-3.5" />
+          <SkipBack className="w-4 h-4" />
         </button>
 
         <button
           onClick={handleTogglePlay}
-          className={`flex-1 py-1.5 rounded-lg font-display font-bold text-xs shadow-md transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer ${
+          className={`flex-1 py-2 px-3 rounded-xl font-display font-bold text-xs shadow-md transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation min-h-[44px] ${
             isPlaying
               ? 'bg-[#ff9e80] hover:bg-amber-400 text-slate-950'
               : 'bg-sky-400 hover:bg-sky-300 text-slate-950'
           }`}
         >
-          {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+          {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
           <span>{isPlaying ? 'Pause' : 'Play Lo-Fi'}</span>
         </button>
 
         <button
           onClick={() => handleSkip(1)}
-          className="p-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono active:scale-95 transition cursor-pointer"
+          className="p-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono active:scale-95 transition cursor-pointer touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Next Track"
         >
-          <SkipForward className="w-3.5 h-3.5" />
+          <SkipForward className="w-4 h-4" />
         </button>
       </div>
     </div>

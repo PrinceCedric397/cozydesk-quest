@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Validation Primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Entity Validation: User Profile
+    function isValidUser(data) {
+      return data.userId is string && data.userId == request.auth.uid
+        && data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 256))
+        && (!('xp' in data) || (data.xp is number))
+        && (!('quests' in data) || (data.quests is list && data.quests.size() <= 50))
+        && (!('starterSteps' in data) || (data.starterSteps is map))
+        && (!('stickyNotes' in data) || (data.stickyNotes is list && data.stickyNotes.size() <= 50))
+        && (!('positions' in data) || (data.positions is map))
+        && (!('skyMode' in data) || (data.skyMode is string && data.skyMode.size() <= 32))
+        && (!('lampLighting' in data) || (data.lampLighting is string && data.lampLighting.size() <= 32));
+    }
+
+    // Entity Validation: Corkboard Note
+    function isValidCorkboardNote(data) {
+      return data.authorId is string && data.authorId == request.auth.uid
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 64
+        && data.message is string && data.message.size() <= 1000
+        && data.color is string && data.color.size() <= 32
+        && data.fontClass is string && data.fontClass.size() <= 32
+        && data.emoji is string && data.emoji.size() <= 32
+        && data.reactions is map
+        && (!('isPolaroid' in data) || (data.isPolaroid is bool))
+        && (!('polaroidTitle' in data) || (data.polaroidTitle is string && data.polaroidTitle.size() <= 128))
+        && (!('polaroidPhoto' in data) || (data.polaroidPhoto is string && data.polaroidPhoto.size() <= 64))
+        && (!('polaroidGradient' in data) || (data.polaroidGradient is string && data.polaroidGradient.size() <= 128))
+        && (!('polaroidDate' in data) || (data.polaroidDate is string && data.polaroidDate.size() <= 64))
+        && (!('washiTapeColor' in data) || (data.washiTapeColor is string && data.washiTapeColor.size() <= 64))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 32))
+        && (!('x' in data) || (data.x is number))
+        && (!('y' in data) || (data.y is number))
+        && (!('rotation' in data) || (data.rotation is number));
+    }
+
+    // User Desk State & Preferences
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+    }
+
+    // Community Bulletin Corkboard Notes
+    match /corkboard_notes/{noteId} {
+      allow get, list: if true;
+
+      allow create: if isSignedIn()
+        && isValidId(noteId)
+        && isValidCorkboardNote(incoming())
+        && incoming().createdAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(noteId)
+        && (
+          // Action 1: Author modifies note details or board position
+          (
+            existing().authorId == request.auth.uid
+            && isValidCorkboardNote(incoming())
+            && incoming().authorId == existing().authorId
+            && incoming().createdAt == existing().createdAt
+          )
+          ||
+          // Action 2: Community reaction stamp (only reactions map may change)
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])
+            && incoming().reactions is map
+          )
+        );
+
+      allow delete: if isSignedIn()
+        && isValidId(noteId)
+        && existing().authorId == request.auth.uid;
+    }
+
+    // Health check / connection test collection
+    match /test/{docId} {
+      allow get: if true;
+    }
+  }
+}

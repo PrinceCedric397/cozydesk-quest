@@ -292,7 +292,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
               setShowColorPicker(!showColorPicker);
               setShowFontPicker(false);
             }}
-            className={`p-1 rounded transition cursor-pointer ${
+            className={`p-1.5 rounded-lg transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center ${
               showColorPicker
                 ? 'bg-black/20 text-black shadow-inner'
                 : 'hover:bg-black/10 text-black/60 hover:text-black'
@@ -312,7 +312,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
               setShowFontPicker(!showFontPicker);
               setShowColorPicker(false);
             }}
-            className={`p-1 rounded transition cursor-pointer ${
+            className={`p-1.5 rounded-lg transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center ${
               showFontPicker
                 ? 'bg-black/20 text-black shadow-inner'
                 : 'hover:bg-black/10 text-black/60 hover:text-black'
@@ -327,7 +327,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
             type="button"
             data-no-drag
             onClick={handleToggleChecklistMode}
-            className={`p-1 rounded transition cursor-pointer ${
+            className={`p-1.5 rounded-lg transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center ${
               note.isChecklist
                 ? 'bg-black/20 text-black font-bold ring-1 ring-black/20'
                 : 'hover:bg-black/10 text-black/60 hover:text-black'
@@ -342,7 +342,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
             type="button"
             data-no-drag
             onClick={handleToggleTilt}
-            className="p-1 rounded hover:bg-black/10 text-black/60 hover:text-black transition cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-black/10 text-black/60 hover:text-black transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center"
             title={Math.abs(rotation) < 0.2 ? 'Add playful tilt' : 'Straighten note (0°)'}
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -353,7 +353,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
             type="button"
             data-no-drag
             onClick={handleTogglePinToDesk}
-            className={`p-1 rounded transition cursor-pointer ${
+            className={`p-1.5 rounded-lg transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center ${
               note.pinnedToDesk
                 ? 'bg-rose-500/20 text-rose-800 font-bold ring-1 ring-rose-500/50 shadow-inner'
                 : 'hover:bg-black/10 text-black/60 hover:text-black'
@@ -375,7 +375,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
               playPinTackSound(0.09);
               onPinToCorkboard(note);
             }}
-            className="p-1 rounded hover:bg-black/10 text-black/60 hover:text-black transition cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-black/10 text-black/60 hover:text-black transition cursor-pointer touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center"
             title="Pin a copy to Community Corkboard Bulletin"
           >
             <Share2 className="w-3.5 h-3.5" />
@@ -392,7 +392,7 @@ export const StickyNoteWidget: React.FC<StickyNoteWidgetProps> = ({
                 playPaperRustleSound('drop', 0.08);
                 onDelete(note.id);
               }}
-              className="p-1 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-700 hover:text-rose-900 transition cursor-pointer shrink-0 border border-rose-400/30"
+              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-700 hover:text-rose-900 transition cursor-pointer shrink-0 border border-rose-400/30 touch-manipulation min-w-[32px] min-h-[32px] flex items-center justify-center"
               title="Delete memo"
               aria-label="Delete memo"
             >

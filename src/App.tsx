@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useFirebase } from './firebase/FirebaseContext';
 import { CelestialSky } from './components/CelestialSky';
 import { DeskHeader } from './components/DeskHeader';
 import { DeskFooter } from './components/DeskFooter';
@@ -16,6 +17,7 @@ import { ExpandedCorkboardStudio } from './components/ExpandedCorkboardStudio';
 import { WelcomeModal } from './components/onboarding/WelcomeModal';
 import { SpotlightTour } from './components/onboarding/SpotlightTour';
 import { FirstStepsCard, StarterStepsState } from './components/onboarding/FirstStepsCard';
+import { LoadingSplashScreen } from './components/LoadingSplashScreen';
 import confetti from 'canvas-confetti';
 import {
   SkyMode,
@@ -31,7 +33,9 @@ import {
   getIsAudioMuted,
   playChime,
   playWinFanfare,
+  startLoFi,
   toggleAmbientRain,
+  playSoftHum,
   playMechanicalClick,
   playPaperRustleSound,
   playDeskSlideSound,
@@ -184,28 +188,41 @@ const INITIAL_CORKBOARD_NOTES: CorkboardNote[] = [
 const INITIAL_STICKY_NOTES: StickyNoteData[] = [
   {
     id: 'sticky-1',
-    title: 'Pinned Memo',
-    content: '✨ Hydrate with water, take 3 deep breaths, and relax your shoulders.',
+    title: 'Self-Care Affirmations',
+    content: '✨ Hydrate with cool water\n✨ Take 3 deep, grounding breaths\n✨ Drop and relax your shoulders\n✨ You are making great progress today!',
     color: '#fef08a',
     fontClass: 'font-hand',
-    rotation: -2,
+    rotation: -1.5,
     isChecklist: false,
     pinnedToDesk: true,
   },
   {
     id: 'sticky-2',
-    title: "Today's Focus",
-    content: 'Win 1 match of Tic-Tac-Toe vs AI\nDrink warm coffee\nListen to Lo-Fi chords',
+    title: "Today's Task Checklist",
+    content: 'Complete a 25m Focus Sprint\nWin 1 match of Pixel Tic-Tac-Toe\nSpin ambient Lo-Fi cassette beats\nTake a warm coffee & stretch break',
     color: '#bbf7d0',
     fontClass: 'font-hand',
-    rotation: 2,
+    rotation: 1.5,
     isChecklist: true,
-    pinnedToDesk: false,
+    checkedItems: [false, false, false, false],
+    pinnedToDesk: true,
   },
 ];
 
 export default function App() {
   const deskCanvasRef = useRef<HTMLDivElement | null>(null);
+
+  // Firebase Context
+  const {
+    user,
+    cloudCorkNotes,
+    isCorkNotesLoadedFromCloud,
+    addCorkNoteCloud,
+    reactCorkNoteCloud,
+    updateCorkNotePositionCloud,
+    saveUserProfileCloud,
+    loadUserProfileCloud,
+  } = useFirebase();
 
   // Ambience State
   const [skyMode, setSkyMode] = useState<SkyMode>('midnight');
@@ -223,27 +240,40 @@ export default function App() {
   const [isExpandedStudioOpen, setIsExpandedStudioOpen] = useState(false);
 
   // Onboarding & Spotlight Tour State
+  const [showSplash, setShowSplash] = useState<boolean>(true);
   const [hasSeenTour, setHasSeenTour] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('has_seen_cozydesk_tour') === 'true';
+      return (
+        localStorage.getItem('cozydesk_tour_completed') === 'true' ||
+        localStorage.getItem('has_seen_cozydesk_tour') === 'true'
+      );
     } catch {
       return false;
     }
   });
-  const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('has_seen_cozydesk_tour') !== 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState<boolean>(false);
   const [isTourActive, setIsTourActive] = useState<boolean>(false);
+  const isTourActiveRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    isTourActiveRef.current = isTourActive;
+  }, [isTourActive]);
 
   // Beginner's "First Steps" Checklist State
   const [starterSteps, setStarterSteps] = useState<StarterStepsState>(() => {
     try {
-      const saved = localStorage.getItem('cozydesk_starter_steps_v1');
-      if (saved) return JSON.parse(saved);
+      const savedV2 = localStorage.getItem('cozydesk_starter_steps_v2');
+      if (savedV2) return JSON.parse(savedV2);
+
+      const savedV1 = localStorage.getItem('cozydesk_starter_steps_v1');
+      if (savedV1) {
+        const parsed = JSON.parse(savedV1);
+        // If only play_lofi was true from the initial splash entry bug and no other task done, clean it
+        if (parsed.play_lofi && !parsed.drink_coffee && !parsed.tictactoe_move && !parsed.expanded_board_note) {
+          parsed.play_lofi = false;
+        }
+        return parsed;
+      }
     } catch {}
     return {
       play_lofi: false,
@@ -262,10 +292,14 @@ export default function App() {
   });
 
   const updateStarterStep = useCallback((key: keyof StarterStepsState) => {
+    // In the tour, tasks and starter steps should not be automatically completed
+    if (isTourActiveRef.current) return;
+
     setStarterSteps((prev) => {
       if (prev[key]) return prev;
       const next = { ...prev, [key]: true };
       try {
+        localStorage.setItem('cozydesk_starter_steps_v2', JSON.stringify(next));
         localStorage.setItem('cozydesk_starter_steps_v1', JSON.stringify(next));
       } catch {}
       return next;
@@ -280,7 +314,16 @@ export default function App() {
   const [quests, setQuests] = useState<Quest[]>(() => {
     try {
       const saved = localStorage.getItem('cozydesk_quests_v2');
-      return saved ? JSON.parse(saved) : INITIAL_QUESTS;
+      if (saved) {
+        const parsed: Quest[] = JSON.parse(saved);
+        // If only play_lofi was completed from the splash screen auto-complete bug, reset it
+        const doneQuests = parsed.filter((q) => q.done);
+        if (doneQuests.length === 1 && doneQuests[0].id === 'play_lofi') {
+          return parsed.map((q) => (q.id === 'play_lofi' ? { ...q, done: false } : q));
+        }
+        return parsed;
+      }
+      return INITIAL_QUESTS;
     } catch {
       return INITIAL_QUESTS;
     }
@@ -288,14 +331,22 @@ export default function App() {
 
   const [currentXp, setCurrentXp] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('cozydesk_xp_v2');
-      return saved ? JSON.parse(saved) : 0;
+      const savedQuests = localStorage.getItem('cozydesk_quests_v2');
+      const savedXp = localStorage.getItem('cozydesk_xp_v2');
+      if (savedQuests) {
+        const parsed: Quest[] = JSON.parse(savedQuests);
+        const doneQuests = parsed.filter((q) => q.done);
+        if (doneQuests.length === 1 && doneQuests[0].id === 'play_lofi' && Number(savedXp) === 25) {
+          return 0;
+        }
+      }
+      return savedXp ? JSON.parse(savedXp) : 0;
     } catch {
       return 0;
     }
   });
 
-  const maxXp = 175;
+  const maxXp = 225;
 
   // Award +50 XP and celebratory fanfare upon completing all 4 starter steps
   useEffect(() => {
@@ -336,10 +387,13 @@ export default function App() {
     }
   });
 
+  // Grid Snapping Setting (16px grid or free-form drag)
+  const [isGridSnapEnabled, setIsGridSnapEnabled] = useState<boolean>(true);
+
   // Sticky Notes
   const [stickyNotes, setStickyNotes] = useState<StickyNoteData[]>(() => {
     try {
-      const saved = localStorage.getItem('cozydesk_stickies_v2');
+      const saved = localStorage.getItem('cozydesk_stickies_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -351,46 +405,58 @@ export default function App() {
           });
         }
       }
-      return INITIAL_STICKY_NOTES;
+      // Migrate from v2 if available
+      const oldSaved = localStorage.getItem('cozydesk_stickies_v2');
+      if (oldSaved) {
+        return INITIAL_STICKY_NOTES;
+      }
     } catch {
       return INITIAL_STICKY_NOTES;
     }
+    return INITIAL_STICKY_NOTES;
   });
 
   // Widget Positions
   const [positions, setPositions] = useState<Record<string, WidgetPosition>>(() => {
     try {
-      const saved = localStorage.getItem('cozydesk_positions_v2');
+      const saved = localStorage.getItem('cozydesk_positions_v3');
       if (saved) return JSON.parse(saved);
     } catch {}
     return getDefaultPositions();
   });
 
   function getDefaultPositions(): Record<string, WidgetPosition> {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     if (isMobile) {
       return {
-        'widget-tictactoe': { id: 'widget-tictactoe', x: 10, y: 10, zIndex: 10 },
-        'widget-pomodoro': { id: 'widget-pomodoro', x: 10, y: 340, zIndex: 11 },
-        'widget-lamp': { id: 'widget-lamp', x: 190, y: 220, zIndex: 12 },
-        'widget-boombox': { id: 'widget-boombox', x: 10, y: 560, zIndex: 13 },
-        'widget-plant': { id: 'widget-plant', x: 10, y: 240, zIndex: 14 },
-        'widget-pet': { id: 'widget-pet', x: 190, y: 390, zIndex: 15 },
-        'widget-coffee': { id: 'widget-coffee', x: 190, y: 110, zIndex: 16 },
-        'widget-sticky-1': { id: 'widget-sticky-1', x: 10, y: 730, zIndex: 17 },
-        'widget-sticky-2': { id: 'widget-sticky-2', x: 10, y: 920, zIndex: 18 },
+        'widget-sky': { id: 'widget-sky', x: 16, y: 16, zIndex: 10 },
+        'widget-lamp': { id: 'widget-lamp', x: 16, y: 204, zIndex: 11 },
+        'widget-pet': { id: 'widget-pet', x: 16, y: 448, zIndex: 12 },
+        'widget-pomodoro': { id: 'widget-pomodoro', x: 16, y: 662, zIndex: 13 },
+        'widget-tictactoe': { id: 'widget-tictactoe', x: 16, y: 906, zIndex: 14 },
+        'widget-boombox': { id: 'widget-boombox', x: 16, y: 1260, zIndex: 15 },
+        'widget-sticky-1': { id: 'widget-sticky-1', x: 16, y: 1574, zIndex: 16 },
+        'widget-sticky-2': { id: 'widget-sticky-2', x: 16, y: 1808, zIndex: 17 },
+        'widget-coffee': { id: 'widget-coffee', x: 16, y: 2062, zIndex: 18 },
+        'widget-plant': { id: 'widget-plant', x: 16, y: 2276, zIndex: 19 },
       };
     }
+
+    // 3-Column Balanced Desktop Grid (16px–24px clean gutters, zero overlap)
+    // Left Column: Entertainment & Games (Pixel Tic-Tac-Toe top, Lo-Fi Synth below)
+    // Center Column: Desk Ambience & Focus (Plant, Desk Lamp, Companion Pet, Focus Clock, Coffee Mug)
+    // Right Column: Personal Organization & Sky View (Midnight Sky, Self-Care Affirmations, Task Checklist)
     return {
       'widget-tictactoe': { id: 'widget-tictactoe', x: 24, y: 20, zIndex: 10 },
-      'widget-pomodoro': { id: 'widget-pomodoro', x: 305, y: 20, zIndex: 11 },
-      'widget-lamp': { id: 'widget-lamp', x: 535, y: 20, zIndex: 12 },
-      'widget-boombox': { id: 'widget-boombox', x: 24, y: 315, zIndex: 13 },
-      'widget-plant': { id: 'widget-plant', x: 255, y: 180, zIndex: 14 },
-      'widget-pet': { id: 'widget-pet', x: 375, y: 180, zIndex: 15 },
-      'widget-coffee': { id: 'widget-coffee', x: 540, y: 235, zIndex: 16 },
-      'widget-sticky-1': { id: 'widget-sticky-1', x: 300, y: 330, zIndex: 17 },
-      'widget-sticky-2': { id: 'widget-sticky-2', x: 610, y: 320, zIndex: 18 },
+      'widget-boombox': { id: 'widget-boombox', x: 24, y: 374, zIndex: 11 },
+      'widget-plant': { id: 'widget-plant', x: 304, y: 180, zIndex: 12 },
+      'widget-lamp': { id: 'widget-lamp', x: 480, y: 20, zIndex: 13 },
+      'widget-pet': { id: 'widget-pet', x: 496, y: 264, zIndex: 14 },
+      'widget-pomodoro': { id: 'widget-pomodoro', x: 480, y: 478, zIndex: 15 },
+      'widget-coffee': { id: 'widget-coffee', x: 712, y: 180, zIndex: 16 },
+      'widget-sky': { id: 'widget-sky', x: 940, y: 20, zIndex: 17 },
+      'widget-sticky-1': { id: 'widget-sticky-1', x: 940, y: 204, zIndex: 18 },
+      'widget-sticky-2': { id: 'widget-sticky-2', x: 940, y: 408, zIndex: 19 },
     };
   }
 
@@ -410,15 +476,61 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('cozydesk_stickies_v2', JSON.stringify(stickyNotes));
+      localStorage.setItem('cozydesk_stickies_v3', JSON.stringify(stickyNotes));
     } catch {}
   }, [stickyNotes]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('cozydesk_positions_v2', JSON.stringify(positions));
+      localStorage.setItem('cozydesk_positions_v3', JSON.stringify(positions));
     } catch {}
   }, [positions]);
+
+  // Corkboard notes to display: prefers real-time Firebase cloud collection when available
+  const displayCorkNotes = useMemo(() => {
+    if (isCorkNotesLoadedFromCloud && cloudCorkNotes.length > 0) {
+      return cloudCorkNotes;
+    }
+    return corkNotes;
+  }, [isCorkNotesLoadedFromCloud, cloudCorkNotes, corkNotes]);
+
+  // Hydrate user profile from Firebase Firestore on sign-in
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    loadUserProfileCloud(user.uid)
+      .then((cloudProfile) => {
+        if (!active || !cloudProfile) return;
+        if (typeof cloudProfile.xp === 'number') setCurrentXp(cloudProfile.xp);
+        if (Array.isArray(cloudProfile.quests) && cloudProfile.quests.length > 0) setQuests(cloudProfile.quests);
+        if (cloudProfile.starterSteps) setStarterSteps(cloudProfile.starterSteps);
+        if (Array.isArray(cloudProfile.stickyNotes) && cloudProfile.stickyNotes.length > 0) setStickyNotes(cloudProfile.stickyNotes);
+        if (cloudProfile.positions) setPositions(cloudProfile.positions);
+        if (cloudProfile.skyMode) setSkyMode(cloudProfile.skyMode);
+        if (cloudProfile.lampLighting) setLampLighting(cloudProfile.lampLighting);
+        setToastMessage(`Welcome, ${user.displayName || 'Cozy Explorer'}! Desk synced from Cloud ☁️`);
+      })
+      .catch((err) => {
+        console.error('Error loading cloud profile:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, loadUserProfileCloud]);
+
+  // Sync state to Firebase Cloud when user is logged in
+  useEffect(() => {
+    if (!user) return;
+    saveUserProfileCloud({
+      xp: currentXp,
+      quests,
+      starterSteps,
+      stickyNotes,
+      positions,
+      skyMode,
+      lampLighting,
+    }).catch(console.error);
+  }, [user, currentXp, quests, starterSteps, stickyNotes, positions, skyMode, lampLighting, saveUserProfileCloud]);
 
   // Synchronize retro incandescent lightbulb flicker with ambient room glow
   useEffect(() => {
@@ -519,6 +631,7 @@ export default function App() {
           if (next) {
             playPinTackSound(0.09);
             setIsCorkboardOpen(false);
+            updateStarterStep('expanded_board_note');
           } else {
             playMechanicalClick('toggle', 0.08);
           }
@@ -595,10 +708,17 @@ export default function App() {
   };
 
   const completeQuest = (questId: string) => {
+    // In the tour, tasks and quests should not be automatically completed
+    if (isTourActiveRef.current) return;
+
     if (questId === 'play_lofi') {
       updateStarterStep('play_lofi');
     } else if (questId === 'sip_coffee') {
       updateStarterStep('drink_coffee');
+    } else if (questId === 'play_tictactoe') {
+      updateStarterStep('tictactoe_move');
+    } else if (questId === 'pin_corkboard') {
+      updateStarterStep('expanded_board_note');
     }
 
     setQuests((prev) => {
@@ -614,6 +734,73 @@ export default function App() {
     });
   };
 
+  const handleOpenExpandedStudio = () => {
+    setIsExpandedStudioOpen(true);
+    setIsCorkboardOpen(false);
+    updateStarterStep('expanded_board_note');
+    playPinTackSound(0.09);
+  };
+
+  const handleResetProgress = () => {
+    setQuests(INITIAL_QUESTS);
+    setStarterSteps({
+      play_lofi: false,
+      drink_coffee: false,
+      tictactoe_move: false,
+      expanded_board_note: false,
+    });
+    setHasAwardedStarterXp(false);
+    setCurrentXp(0);
+    try {
+      localStorage.removeItem('cozydesk_starter_awarded_v1');
+      localStorage.setItem(
+        'cozydesk_starter_steps_v2',
+        JSON.stringify({
+          play_lofi: false,
+          drink_coffee: false,
+          tictactoe_move: false,
+          expanded_board_note: false,
+        })
+      );
+      localStorage.setItem('cozydesk_quests_v2', JSON.stringify(INITIAL_QUESTS));
+      localStorage.setItem('cozydesk_xp_v2', '0');
+    } catch {}
+    playMechanicalClick('toggle', 0.08);
+    showToast('Quests & First Steps reset to fresh state! 🌟');
+  };
+
+  const handleEnterWorkspace = useCallback(
+    (options: {
+      startAudio: boolean;
+      audioChoice: 'lofi' | 'rain' | 'hum' | 'none';
+      lofiTrackKey?: string;
+    }) => {
+      setShowSplash(false);
+
+      if (options.startAudio) {
+        if (options.audioChoice === 'lofi') {
+          startLoFi(options.lofiTrackKey || 'tokyo');
+          // Note: Do not auto-complete the task or quest on entry. The user must manually click play on the radio widget.
+          showToast('📻 Lo-Fi beat synthesizer activated');
+        } else if (options.audioChoice === 'rain') {
+          setIsRainActive(true);
+          toggleAmbientRain(true);
+          showToast('🌧️ Gentle window rain started');
+        } else if (options.audioChoice === 'hum') {
+          playSoftHum('electronic', 3.5, 0.05);
+          showToast('🕯️ Warm ambient desk hum activated');
+        }
+      }
+
+      if (!hasSeenTour) {
+        setTimeout(() => {
+          setIsWelcomeModalOpen(true);
+        }, 550);
+      }
+    },
+    [hasSeenTour]
+  );
+
   // Drag & Drop Engine with Boundary Clamping
   const activeDrag = useRef<{
     id: string;
@@ -624,19 +811,32 @@ export default function App() {
     pointerId: number;
   } | null>(null);
 
+  // Ensure the actively clicked or touched widget or sticky note is brought strictly to the front
+  const bringWidgetToFront = useCallback((id: string) => {
+    setPositions((prev) => {
+      const current = prev[id] || { id, x: 20, y: 20, zIndex: 10 };
+      const allZ = Object.values(prev).map((p) =>
+        typeof p?.zIndex === 'number' && !isNaN(p.zIndex) ? p.zIndex : 10
+      );
+      const highestZ = Math.max(10, ...allZ);
+      const isTopmost =
+        current.zIndex > 10 &&
+        current.zIndex >= highestZ &&
+        allZ.filter((z) => z === current.zIndex).length === 1;
+
+      if (!isTopmost) {
+        return {
+          ...prev,
+          [id]: { ...current, zIndex: highestZ + 1 },
+        };
+      }
+      return prev;
+    });
+  }, []);
+
   const handlePointerDown = (id: string, e: React.PointerEvent<HTMLDivElement>) => {
-    // Bring clicked widget or sticky note to front if not already topmost
-    const currentPos = positions[id] || { id, x: 20, y: 20, zIndex: 10 };
-    const validZIndices = Object.values(positions).map((p) =>
-      typeof p?.zIndex === 'number' && !isNaN(p.zIndex) ? p.zIndex : 10
-    );
-    const highestZ = Math.max(20, ...validZIndices);
-    if ((currentPos.zIndex || 0) < highestZ) {
-      setPositions((prev) => ({
-        ...prev,
-        [id]: { ...(prev[id] || currentPos), zIndex: highestZ + 1 },
-      }));
-    }
+    // Bring actively clicked/dragged widget to front immediately
+    bringWidgetToFront(id);
 
     // Avoid dragging when typing or clicking buttons/selects/interactive controls
     const target = e.target as HTMLElement;
@@ -665,6 +865,7 @@ export default function App() {
       }
     }
 
+    const currentPos = positions[id] || { id, x: 20, y: 20, zIndex: 10 };
     activeDrag.current = {
       id,
       startX: e.clientX,
@@ -691,8 +892,8 @@ export default function App() {
     }
 
     const canvas = deskCanvasRef.current;
-    const maxW = canvas ? (canvas.clientWidth / currentScale) - 100 : 800;
-    const maxH = canvas ? (canvas.clientHeight / currentScale) - 80 : 600;
+    const maxW = canvas ? canvas.clientWidth / currentScale - 100 : 800;
+    const maxH = canvas ? canvas.clientHeight / currentScale - 80 : 600;
 
     const newX = Math.max(0, Math.min(origX + dx, maxW));
     const newY = Math.max(0, Math.min(origY + dy, maxH));
@@ -714,6 +915,26 @@ export default function App() {
         e.currentTarget.releasePointerCapture(activeDrag.current.pointerId);
       } catch {}
       activeDrag.current = null;
+
+      // Clean grid-snapping on drop if enabled (16px grid)
+      if (isGridSnapEnabled) {
+        setPositions((prev) => {
+          const item = prev[draggedId];
+          if (!item) return prev;
+          const snappedX = Math.round(item.x / 16) * 16;
+          const snappedY = Math.round(item.y / 16) * 16;
+          if (snappedX === item.x && snappedY === item.y) return prev;
+          return {
+            ...prev,
+            [draggedId]: {
+              ...item,
+              x: snappedX,
+              y: snappedY,
+            },
+          };
+        });
+      }
+
       // Play satisfying tactile settling sound based on widget material (paper, ceramic, clay, brass)
       playItemDropSound(draggedId);
     }
@@ -735,7 +956,23 @@ export default function App() {
       toggleAmbientRain(true);
       showToast('Rainy Night & Window Drops 🌧️');
     } else {
+      setIsRainActive(false);
+      toggleAmbientRain(false);
       showToast(`Sky: ${nextMode.toUpperCase()} 🌌`);
+    }
+  };
+
+  const handleSelectSky = (targetMode: SkyMode) => {
+    setSkyMode(targetMode);
+    playMechanicalClick('toggle', 0.08);
+    if (targetMode === 'rainy') {
+      setIsRainActive(true);
+      toggleAmbientRain(true);
+      showToast('Rainy Night & Window Drops 🌧️');
+    } else {
+      setIsRainActive(false);
+      toggleAmbientRain(false);
+      showToast(`Sky: ${targetMode.toUpperCase()} 🌌`);
     }
   };
 
@@ -764,7 +1001,9 @@ export default function App() {
     const nextRain = !isRainActive;
     setIsRainActive(nextRain);
     toggleAmbientRain(nextRain);
-    if (nextRain) setSkyMode('rainy');
+    if (nextRain && skyMode !== 'rainy') {
+      setSkyMode('rainy');
+    }
     showToast(nextRain ? 'Soft Rain Sound: ON 🌧️' : 'Rain Sound: OFF');
   };
 
@@ -845,14 +1084,33 @@ export default function App() {
     showToast('Sticky Note removed');
   };
 
-  const handlePinToCorkboard = (note: StickyNoteData) => {
-    const corkNote: CorkboardNote = {
-      id: `cork-${Date.now()}`,
+  const handlePinToCorkboard = async (note: StickyNoteData) => {
+    const noteData = {
       name: note.title || 'Desk Memo',
       message: note.content,
       color: note.color,
       fontClass: note.fontClass,
       emoji: '📌',
+      category: 'memo' as const,
+    };
+
+    if (user) {
+      try {
+        await addCorkNoteCloud(noteData);
+        completeQuest('pin_corkboard');
+        updateStarterStep('expanded_board_note');
+        setIsCorkboardOpen(true);
+        playPinTackSound(0.09);
+        showToast('Desk note pinned to Community Corkboard (Live in Cloud)! 📌☁️');
+        return;
+      } catch (err) {
+        console.error('Failed to add note to cloud:', err);
+      }
+    }
+
+    const corkNote: CorkboardNote = {
+      id: `cork-${Date.now()}`,
+      ...noteData,
       createdAt: Date.now(),
       reactions: { heart: 1, coffee: 0, star: 1, fire: 0 },
     };
@@ -866,7 +1124,20 @@ export default function App() {
   };
 
   // Corkboard Note Adding
-  const handleAddCorkNote = (data: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>) => {
+  const handleAddCorkNote = async (data: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>) => {
+    if (user) {
+      try {
+        await addCorkNoteCloud(data);
+        completeQuest('pin_corkboard');
+        updateStarterStep('expanded_board_note');
+        playPinTackSound(0.09);
+        showToast('Pinned to Community Corkboard (Live in Cloud)! 📌☁️');
+        return;
+      } catch (err) {
+        console.error('Failed to add note to cloud:', err);
+      }
+    }
+
     const newNote: CorkboardNote = {
       id: `cork-${Date.now()}`,
       ...data,
@@ -877,7 +1148,11 @@ export default function App() {
     completeQuest('pin_corkboard');
     updateStarterStep('expanded_board_note');
     playPinTackSound(0.09);
-    showToast('Your note was pinned to the bulletin board! 📌');
+    showToast(
+      user
+        ? 'Your note was pinned to the bulletin board! 📌'
+        : 'Note pinned locally! Sign in with Google to share on Community Board ☁️'
+    );
   };
 
   const handleReactCorkNote = (
@@ -885,6 +1160,13 @@ export default function App() {
     type: 'heart' | 'coffee' | 'star' | 'fire'
   ) => {
     playStampSound(0.09);
+    const isCloudNote = cloudCorkNotes.some((n) => n.id === noteId);
+    if (isCloudNote) {
+      reactCorkNoteCloud(noteId, type).catch((err) => {
+        console.error('Failed to react in cloud:', err);
+      });
+    }
+
     setCorkNotes((prev) =>
       prev.map((n) => {
         if (n.id === noteId) {
@@ -892,7 +1174,7 @@ export default function App() {
             ...n,
             reactions: {
               ...n.reactions,
-              [type]: n.reactions[type] + 1,
+              [type]: (n.reactions?.[type] || 0) + 1,
             },
           };
         }
@@ -902,6 +1184,13 @@ export default function App() {
   };
 
   const handleUpdateCorkNotePosition = (id: string, x: number, y: number) => {
+    const isCloudNote = cloudCorkNotes.some((n) => n.id === id);
+    if (isCloudNote) {
+      updateCorkNotePositionCloud(id, x, y).catch((err) => {
+        console.error('Failed to update position in cloud:', err);
+      });
+    }
+
     setCorkNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, x, y } : n))
     );
@@ -909,27 +1198,109 @@ export default function App() {
 
   const handleResetLayout = () => {
     const defaults = getDefaultPositions();
-    // Neatly arrange existing custom or extra sticky notes in the desk notes zone
+    // Neatly arrange existing custom or extra sticky notes on the right column
     stickyNotes.forEach((note, index) => {
       const widgetKey = `widget-${note.id}`;
       if (!defaults[widgetKey]) {
         defaults[widgetKey] = {
           id: widgetKey,
-          x: 300 + ((index % 3) * 270),
-          y: 330 + Math.floor(index / 3) * 220,
-          zIndex: 17 + index,
+          x: 940,
+          y: 638 + (index - 2) * 230,
+          zIndex: 20 + index,
         };
       }
     });
     setPositions(defaults);
     playWoodThudSound(140, 0.08);
     setTimeout(() => playPaperRustleSound('flutter', 0.07), 60);
-    showToast('Desk items rearranged to default positions! 🧹');
+    showToast('3-Column Balanced Layout Applied! 🧹✨');
+  };
+
+  // Mobile Focus & Quick Widget Navigation
+  const [focusedWidgetId, setFocusedWidgetId] = useState<string | null>(null);
+
+  const handleFocusWidget = (targetId: string) => {
+    setIsQuestsOpen(false);
+    setIsCorkboardOpen(false);
+    setIsExpandedStudioOpen(false);
+
+    let actualId = targetId;
+    if (targetId === 'widget-notes') {
+      actualId = stickyNotes.length > 0 ? `widget-${stickyNotes[0].id}` : 'widget-sticky-1';
+    }
+
+    bringWidgetToFront(actualId);
+    setFocusedWidgetId(actualId);
+    setTimeout(() => {
+      setFocusedWidgetId((cur) => (cur === actualId ? null : cur));
+    }, 2800);
+
+    setTimeout(() => {
+      const el = document.getElementById(actualId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        el.classList.add('ring-4', 'ring-amber-400', 'animate-pulse');
+        setTimeout(() => {
+          el.classList.remove('ring-4', 'ring-amber-400', 'animate-pulse');
+        }, 2200);
+      }
+    }, 80);
+  };
+
+  // Mobile Auto-Stacking Stage Organizer (< 768px)
+  const handleAutoStackMobile = () => {
+    const paddingX = 16;
+    let currentY = 16;
+    const stacked: Record<string, WidgetPosition> = {};
+    let z = 10;
+
+    // Follow the clear 3-column conceptual hierarchy on mobile:
+    // 1. Midnight Sky view
+    // 2. Desk Ambience & Focus (Lamp, Pet, Focus Clock)
+    // 3. Entertainment & Games (Tic-Tac-Toe, Lo-Fi Synth)
+    // 4. Personal Organization (Sticky Notes)
+    // 5. Desk Accessories (Coffee, Plant)
+    const coreOrder: { id: string; h: number }[] = [
+      { id: 'widget-sky', h: 188 },
+      { id: 'widget-lamp', h: 244 },
+      { id: 'widget-pet', h: 214 },
+      { id: 'widget-pomodoro', h: 244 },
+      { id: 'widget-tictactoe', h: 354 },
+      { id: 'widget-boombox', h: 314 },
+    ];
+
+    coreOrder.forEach(({ id, h }) => {
+      stacked[id] = { id, x: paddingX, y: currentY, zIndex: z++ };
+      currentY += h;
+    });
+
+    stickyNotes.forEach((note) => {
+      const widgetKey = `widget-${note.id}`;
+      stacked[widgetKey] = { id: widgetKey, x: paddingX, y: currentY, zIndex: z++ };
+      currentY += 234;
+    });
+
+    const accessoryOrder: { id: string; h: number }[] = [
+      { id: 'widget-coffee', h: 214 },
+      { id: 'widget-plant', h: 174 },
+    ];
+
+    accessoryOrder.forEach(({ id, h }) => {
+      stacked[id] = { id, x: paddingX, y: currentY, zIndex: z++ };
+      currentY += h;
+    });
+
+    setPositions(stacked);
+    playWoodThudSound(220, 0.08);
+    showToast('Clean Mobile Stage Stacking Applied! 🧹📱');
+    if (deskCanvasRef.current) {
+      deskCanvasRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   // Ambient Lighting Gradient computation
   const getAmbientOverlayStyle = () => {
-    const lampPos = positions['widget-lamp'] || { x: 535, y: 20 };
+    const lampPos = positions['widget-lamp'] || { x: 480, y: 20 };
     const cx = Math.max(60, lampPos.x + 40);
     const cy = Math.max(60, lampPos.y + 40);
 
@@ -974,7 +1345,7 @@ export default function App() {
   const questsDoneCount = quests.filter((q) => q.done).length;
 
   return (
-    <div className="font-sans text-slate-100 flex flex-col justify-between h-screen w-screen relative overflow-hidden bg-[#0d0f17]">
+    <div className="font-sans text-slate-100 flex flex-col justify-between h-screen h-[100dvh] w-screen relative overflow-hidden bg-[#0d0f17]">
       {/* Ambient Lighting Overlay with Retro Bulb Startup / Shutdown Flicker */}
       <div
         key={`ambient-glow-${lampLighting}-${lampFlickerClass ? 'flicker' : 'static'}`}
@@ -989,7 +1360,7 @@ export default function App() {
           maxXp={maxXp}
           questsDoneCount={questsDoneCount}
           totalQuests={quests.length}
-          corkNotesCount={corkNotes.length}
+          corkNotesCount={displayCorkNotes.length}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           onOpenQuests={() => {
@@ -1004,19 +1375,18 @@ export default function App() {
             playChime(500, 'sine', 0.08);
             setIsCorkboardOpen(true);
           }}
-          onOpenExpandedStudio={() => {
-            playPinTackSound(0.09);
-            setIsExpandedStudioOpen(true);
-          }}
+          onOpenExpandedStudio={handleOpenExpandedStudio}
           lampLighting={lampLighting}
           onCycleLighting={handleCycleLighting}
+          skyMode={skyMode}
+          onCycleSky={handleCycleSky}
         />
       )}
 
       {/* Main Desk Workspace Canvas */}
       <main
         ref={deskCanvasRef}
-        className="relative flex-1 w-full h-full desk-pattern overflow-auto select-none"
+        className="relative flex-1 w-full h-full desk-pattern overflow-auto select-none touch-manipulation"
       >
         {/* Desk Surface Wood Rim (Background bottom desk mat edge) */}
         <div className="absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t from-[#120d0b] via-[#18110f]/80 to-transparent pointer-events-none z-0" />
@@ -1031,183 +1401,239 @@ export default function App() {
           }}
           className="relative z-10 w-full h-full will-change-transform"
         >
-          {/* Celestial Sky Window on Wall */}
-          <div onMouseEnter={() => handleWidgetHover('widget-sky')}>
-            <CelestialSky mode={skyMode} onCycleMode={handleCycleSky} />
+          {/* GADGET 0: Celestial Sky Window (Right Column Top) */}
+          <div
+            id="widget-sky"
+            style={{
+              transform: `translate3d(${positions['widget-sky']?.x ?? 940}px, ${positions['widget-sky']?.y ?? 20}px, 0)`,
+              zIndex: positions['widget-sky']?.zIndex ?? 17,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-sky', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-sky')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-sky'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <CelestialSky
+              mode={skyMode}
+              onCycleMode={handleCycleSky}
+              onSelectMode={handleSelectSky}
+              isRainActive={isRainActive}
+              onToggleRain={handleToggleRain}
+            />
           </div>
 
-        {/* GADGET 1: Tic-Tac-Toe Arcade Widget */}
-        <div
-          id="widget-tictactoe"
-          style={{
-            left: `${positions['widget-tictactoe']?.x ?? 24}px`,
-            top: `${positions['widget-tictactoe']?.y ?? 20}px`,
-            zIndex: positions['widget-tictactoe']?.zIndex ?? 10,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-tictactoe', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-tictactoe')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <TicTacToeWidget
-            onWinQuest={() => completeQuest('play_tictactoe')}
-            onPlayerMove={() => updateStarterStep('tictactoe_move')}
-          />
-        </div>
-
-        {/* GADGET 2: Focus Clock / Pomodoro Widget */}
-        <div
-          id="widget-pomodoro"
-          style={{
-            left: `${positions['widget-pomodoro']?.x ?? 305}px`,
-            top: `${positions['widget-pomodoro']?.y ?? 20}px`,
-            zIndex: positions['widget-pomodoro']?.zIndex ?? 11,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-pomodoro', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-pomodoro')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <PomodoroWidget onSprintComplete={() => completeQuest('pomo_focus')} />
-        </div>
-
-        {/* GADGET 3: Desk Lamp Widget */}
-        <div
-          id="widget-lamp"
-          style={{
-            left: `${positions['widget-lamp']?.x ?? 535}px`,
-            top: `${positions['widget-lamp']?.y ?? 20}px`,
-            zIndex: positions['widget-lamp']?.zIndex ?? 12,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-lamp', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-lamp')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <DeskLampWidget
-            lighting={lampLighting}
-            onCycleLighting={handleCycleLighting}
-            onSetLighting={handleSetLighting}
-            onLampQuest={() => completeQuest('lamp_toggle')}
-          />
-        </div>
-
-        {/* GADGET 4: Lo-Fi Radio Boombox */}
-        <div
-          id="widget-boombox"
-          style={{
-            left: `${positions['widget-boombox']?.x ?? 24}px`,
-            top: `${positions['widget-boombox']?.y ?? 315}px`,
-            zIndex: positions['widget-boombox']?.zIndex ?? 13,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-boombox', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-boombox')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <LoFiRadioWidget onPlayQuest={() => completeQuest('play_lofi')} />
-        </div>
-
-        {/* GADGET 5: Waterable Desk Succulent */}
-        <div
-          id="widget-plant"
-          style={{
-            left: `${positions['widget-plant']?.x ?? 255}px`,
-            top: `${positions['widget-plant']?.y ?? 180}px`,
-            zIndex: positions['widget-plant']?.zIndex ?? 14,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-plant', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-plant')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <PlantWidget onWaterQuest={() => completeQuest('water_succulent')} />
-        </div>
-
-        {/* GADGET 6: Pixel Pet Tamagotchi */}
-        <div
-          id="widget-pet"
-          style={{
-            left: `${positions['widget-pet']?.x ?? 375}px`,
-            top: `${positions['widget-pet']?.y ?? 180}px`,
-            zIndex: positions['widget-pet']?.zIndex ?? 15,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-pet', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-pet')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <PixelPetWidget onPetQuest={() => completeQuest('feed_pet')} />
-        </div>
-
-        {/* GADGET 7: Steaming Coffee Mug */}
-        <div
-          id="widget-coffee"
-          style={{
-            left: `${positions['widget-coffee']?.x ?? 540}px`,
-            top: `${positions['widget-coffee']?.y ?? 235}px`,
-            zIndex: positions['widget-coffee']?.zIndex ?? 16,
-          }}
-          onPointerDown={(e) => handlePointerDown('widget-coffee', e)}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onMouseEnter={() => handleWidgetHover('widget-coffee')}
-          className="absolute cursor-grab active:cursor-grabbing touch-none transition-shadow will-change-transform"
-        >
-          <CoffeeMugWidget onSipQuest={() => completeQuest('sip_coffee')} />
-        </div>
-
-        {/* GADGET 8+: Draggable Sticky Notes */}
-        {stickyNotes.map((note) => {
-          const widgetKey = `widget-${note.id}`;
-          const currentPos = positions[widgetKey] || {
-            id: widgetKey,
-            x: 200,
-            y: 340,
-            zIndex: 17,
-          };
-
-          return (
-            <div
-              key={note.id}
-              id={widgetKey}
-              style={{
-                left: `${currentPos.x}px`,
-                top: `${currentPos.y}px`,
-                zIndex: currentPos.zIndex,
-              }}
-              onPointerDown={(e) => handlePointerDown(widgetKey, e)}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              onMouseEnter={() => handleWidgetHover(widgetKey)}
-              className={`absolute touch-none transition-shadow will-change-transform ${
-                note.pinnedToDesk ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
-              }`}
-            >
-              <StickyNoteWidget
-                note={note}
-                onUpdate={handleUpdateSticky}
-                onDelete={handleDeleteSticky}
-                onPinToCorkboard={handlePinToCorkboard}
-                isHighlighted={highlightedStickyId === note.id}
+          {/* GADGET 1: Tic-Tac-Toe Arcade Widget (Left Column Top) */}
+          <div
+            id="widget-tictactoe"
+            style={{
+              transform: `translate3d(${positions['widget-tictactoe']?.x ?? 24}px, ${positions['widget-tictactoe']?.y ?? 20}px, 0)`,
+              zIndex: positions['widget-tictactoe']?.zIndex ?? 10,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-tictactoe', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-tictactoe')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-tictactoe'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <div id="tictactoe-widget" className="w-full h-full">
+              <TicTacToeWidget
+                onWinQuest={() => completeQuest('play_tictactoe')}
+                onPlayerMove={() => updateStarterStep('tictactoe_move')}
               />
             </div>
-          );
-        })}
+          </div>
+
+          {/* GADGET 2: Lo-Fi Radio Boombox (Left Column Bottom) */}
+          <div
+            id="widget-boombox"
+            style={{
+              transform: `translate3d(${positions['widget-boombox']?.x ?? 24}px, ${positions['widget-boombox']?.y ?? 374}px, 0)`,
+              zIndex: positions['widget-boombox']?.zIndex ?? 11,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-boombox', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-boombox')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-boombox'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <div id="lofi-synth-card" className="w-full h-full">
+              <LoFiRadioWidget onPlayQuest={() => completeQuest('play_lofi')} />
+            </div>
+          </div>
+
+          {/* GADGET 3: Waterable Desk Succulent (Center Column Left Accessory) */}
+          <div
+            id="widget-plant"
+            style={{
+              transform: `translate3d(${positions['widget-plant']?.x ?? 304}px, ${positions['widget-plant']?.y ?? 180}px, 0)`,
+              zIndex: positions['widget-plant']?.zIndex ?? 12,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-plant', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-plant')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-plant'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <PlantWidget onWaterQuest={() => completeQuest('water_succulent')} />
+          </div>
+
+          {/* GADGET 4: Desk Lamp Widget (Center Column Top) */}
+          <div
+            id="widget-lamp"
+            style={{
+              transform: `translate3d(${positions['widget-lamp']?.x ?? 480}px, ${positions['widget-lamp']?.y ?? 20}px, 0)`,
+              zIndex: positions['widget-lamp']?.zIndex ?? 13,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-lamp', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-lamp')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-lamp'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <DeskLampWidget
+              lighting={lampLighting}
+              onCycleLighting={handleCycleLighting}
+              onSetLighting={handleSetLighting}
+              onLampQuest={() => completeQuest('lamp_toggle')}
+            />
+          </div>
+
+          {/* GADGET 5: Pixel Pet Tamagotchi (Center Column Middle) */}
+          <div
+            id="widget-pet"
+            style={{
+              transform: `translate3d(${positions['widget-pet']?.x ?? 496}px, ${positions['widget-pet']?.y ?? 264}px, 0)`,
+              zIndex: positions['widget-pet']?.zIndex ?? 14,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-pet', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-pet')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-pet'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <PixelPetWidget onPetQuest={() => completeQuest('feed_pet')} />
+          </div>
+
+          {/* GADGET 6: Focus Clock / Pomodoro Widget (Center Column Bottom) */}
+          <div
+            id="widget-pomodoro"
+            style={{
+              transform: `translate3d(${positions['widget-pomodoro']?.x ?? 480}px, ${positions['widget-pomodoro']?.y ?? 478}px, 0)`,
+              zIndex: positions['widget-pomodoro']?.zIndex ?? 15,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-pomodoro', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-pomodoro')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-pomodoro'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <div id="pomodoro-timer" className="w-full h-full">
+              <PomodoroWidget onSprintComplete={() => completeQuest('pomo_focus')} />
+            </div>
+          </div>
+
+          {/* GADGET 7: Steaming Coffee Mug (Center Column Right Accessory) */}
+          <div
+            id="widget-coffee"
+            style={{
+              transform: `translate3d(${positions['widget-coffee']?.x ?? 712}px, ${positions['widget-coffee']?.y ?? 180}px, 0)`,
+              zIndex: positions['widget-coffee']?.zIndex ?? 16,
+            }}
+            onPointerDown={(e) => handlePointerDown('widget-coffee', e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onMouseEnter={() => handleWidgetHover('widget-coffee')}
+            className={`absolute top-0 left-0 cursor-grab active:cursor-grabbing touch-none rounded-2xl will-change-transform transition-[box-shadow,ring] duration-300 ${
+              focusedWidgetId === 'widget-coffee'
+                ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                : ''
+            }`}
+          >
+            <div id="desk-gadgets-area" className="w-full h-full">
+              <CoffeeMugWidget onSipQuest={() => completeQuest('sip_coffee')} />
+            </div>
+          </div>
+
+          {/* GADGET 8+: Draggable Sticky Notes (Right Column) */}
+          {stickyNotes.map((note) => {
+            const widgetKey = `widget-${note.id}`;
+            const defaultPos = {
+              id: widgetKey,
+              x: 940,
+              y: note.id === 'sticky-1' ? 204 : note.id === 'sticky-2' ? 408 : 638,
+              zIndex: note.id === 'sticky-1' ? 18 : 19,
+            };
+            const currentPos = positions[widgetKey] || defaultPos;
+            const isFocused = focusedWidgetId === widgetKey;
+
+            return (
+              <div
+                key={note.id}
+                id={widgetKey}
+                style={{
+                  transform: `translate3d(${currentPos.x}px, ${currentPos.y}px, 0)`,
+                  zIndex: currentPos.zIndex,
+                }}
+                onPointerDown={(e) => handlePointerDown(widgetKey, e)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onMouseEnter={() => handleWidgetHover(widgetKey)}
+                className={`absolute top-0 left-0 touch-none will-change-transform rounded-2xl transition-[box-shadow,ring] duration-300 ${
+                  note.pinnedToDesk ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+                } ${
+                  isFocused
+                    ? 'ring-4 ring-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.7)] animate-pulse'
+                    : ''
+                }`}
+              >
+                <StickyNoteWidget
+                  note={note}
+                  onUpdate={handleUpdateSticky}
+                  onDelete={handleDeleteSticky}
+                  onPinToCorkboard={handlePinToCorkboard}
+                  isHighlighted={highlightedStickyId === note.id}
+                />
+              </div>
+            );
+          })}
         </div>
       </main>
 
@@ -1225,14 +1651,26 @@ export default function App() {
             setIsZenMode(!isZenMode);
             showToast(!isZenMode ? 'Zen Mode: Press ESC or tool to exit' : 'Zen Mode deactivated');
           }}
-          onOpenExpandedStudio={() => {
-            playPinTackSound(0.09);
-            setIsExpandedStudioOpen(true);
+          onOpenExpandedStudio={handleOpenExpandedStudio}
+          isGridSnapEnabled={isGridSnapEnabled}
+          onToggleGridSnap={() => {
+            const next = !isGridSnapEnabled;
+            setIsGridSnapEnabled(next);
+            showToast(next ? 'Grid Snapping: 16px Enabled 📏' : 'Free-Form Drag Enabled 🕊️');
           }}
           deskScale={deskScale}
           onZoomInDesk={handleZoomInDesk}
           onZoomOutDesk={handleZoomOutDesk}
           onResetDeskZoom={handleResetDeskZoom}
+          onOpenQuests={() => {
+            playChime(440, 'sine', 0.08);
+            setIsQuestsOpen(true);
+          }}
+          questsDoneCount={questsDoneCount}
+          totalQuests={quests.length}
+          onFocusWidget={handleFocusWidget}
+          activeFocusedWidget={focusedWidgetId}
+          onAutoStackMobile={handleAutoStackMobile}
         />
       )}
 
@@ -1259,7 +1697,16 @@ export default function App() {
         <FirstStepsCard
           steps={starterSteps}
           isCompleted={Object.values(starterSteps).every(Boolean)}
-          onOpenExpandedStudio={() => setIsExpandedStudioOpen(true)}
+          onOpenExpandedStudio={handleOpenExpandedStudio}
+          onStepClick={(stepId) => {
+            const map: Record<string, string> = {
+              play_lofi: 'widget-boombox',
+              drink_coffee: 'widget-coffee',
+              tictactoe_move: 'widget-tictactoe',
+              expanded_board_note: 'btn-expanded-board',
+            };
+            if (map[stepId]) handleFocusWidget(map[stepId]);
+          }}
         />
       )}
 
@@ -1272,6 +1719,8 @@ export default function App() {
         maxXp={maxXp}
         starterSteps={starterSteps}
         isStarterCompleted={Object.values(starterSteps).every(Boolean)}
+        onFocusWidget={handleFocusWidget}
+        onResetProgress={handleResetProgress}
         onOpenTour={() => {
           setIsQuestsOpen(false);
           setIsTourActive(true);
@@ -1281,20 +1730,17 @@ export default function App() {
       <CorkboardModal
         isOpen={isCorkboardOpen}
         onClose={() => setIsCorkboardOpen(false)}
-        notes={corkNotes}
+        notes={displayCorkNotes}
         onAddNote={handleAddCorkNote}
         onReactNote={handleReactCorkNote}
-        onOpenExpandedStudio={() => {
-          playPinTackSound(0.09);
-          setIsExpandedStudioOpen(true);
-        }}
+        onOpenExpandedStudio={handleOpenExpandedStudio}
       />
 
       {/* Expanded Corkboard Studio (2800x2200 px Canvas) */}
       <ExpandedCorkboardStudio
         isOpen={isExpandedStudioOpen}
         onClose={() => setIsExpandedStudioOpen(false)}
-        notes={corkNotes}
+        notes={displayCorkNotes}
         onAddNote={handleAddCorkNote}
         onReactNote={handleReactCorkNote}
         onUpdateNotePosition={handleUpdateCorkNotePosition}
@@ -1311,6 +1757,7 @@ export default function App() {
           setIsWelcomeModalOpen(false);
           setHasSeenTour(true);
           try {
+            localStorage.setItem('cozydesk_tour_completed', 'true');
             localStorage.setItem('has_seen_cozydesk_tour', 'true');
           } catch {}
         }}
@@ -1323,11 +1770,33 @@ export default function App() {
           setIsTourActive(false);
           setHasSeenTour(true);
           try {
+            localStorage.setItem('cozydesk_tour_completed', 'true');
             localStorage.setItem('has_seen_cozydesk_tour', 'true');
           } catch {}
         }}
-        onOpenExpandedStudio={() => setIsExpandedStudioOpen(true)}
+        onComplete={() => {
+          setIsTourActive(false);
+          setHasSeenTour(true);
+          try {
+            localStorage.setItem('cozydesk_tour_completed', 'true');
+            localStorage.setItem('has_seen_cozydesk_tour', 'true');
+          } catch {}
+        }}
+        onSkip={() => {
+          setIsTourActive(false);
+          setHasSeenTour(true);
+          try {
+            localStorage.setItem('cozydesk_tour_completed', 'true');
+            localStorage.setItem('has_seen_cozydesk_tour', 'true');
+          } catch {}
+        }}
+        onOpenExpandedStudio={handleOpenExpandedStudio}
       />
+
+      {/* Atmospheric Retro-Cozy Loading Screen & Welcome Splash Screen */}
+      {showSplash && (
+        <LoadingSplashScreen onEnterWorkspace={handleEnterWorkspace} />
+      )}
     </div>
   );
 }

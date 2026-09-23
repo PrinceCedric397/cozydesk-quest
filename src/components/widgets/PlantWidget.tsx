@@ -169,6 +169,8 @@ export const PlantWidget: React.FC<PlantWidgetProps> = ({ onWaterQuest }) => {
     setIsWobbling(true);
     setTimeout(() => setIsWobbling(false), 350);
 
+    if (onWaterQuest) onWaterQuest();
+
     // Floating heart affection
     const heart = { id: Date.now(), x: Math.random() * 20 - 10 };
     setHearts((prev) => [...prev, heart]);
@@ -191,29 +193,29 @@ export const PlantWidget: React.FC<PlantWidgetProps> = ({ onWaterQuest }) => {
   return (
     <div className="flex flex-col items-center select-none group relative">
       {/* Top Quick Actions */}
-      <div className="flex items-center gap-1 mb-1 opacity-90 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1.5 mb-1.5 opacity-95 group-hover:opacity-100 transition-opacity">
         <button
           onClick={handleWater}
-          className="px-1.5 py-0.5 bg-slate-900/80 hover:bg-slate-800 text-[9px] font-mono text-sky-300 rounded border border-slate-700/80 shadow-sm flex items-center gap-1 active:scale-90 transition cursor-pointer"
+          className="px-2.5 py-1 bg-slate-900/90 hover:bg-slate-800 text-[10px] font-mono text-sky-300 rounded-lg border border-slate-700/80 shadow-sm flex items-center gap-1.5 active:scale-95 transition cursor-pointer touch-manipulation min-h-[34px]"
           title="Pour fresh water"
         >
-          <Droplet className="w-2.5 h-2.5 fill-current" />
+          <Droplet className="w-3.5 h-3.5 fill-current" />
           <span>Water</span>
         </button>
         <button
           onClick={handleMist}
-          className="px-1.5 py-0.5 bg-slate-900/80 hover:bg-slate-800 text-[9px] font-mono text-emerald-300 rounded border border-slate-700/80 shadow-sm flex items-center gap-1 active:scale-90 transition cursor-pointer"
+          className="px-2.5 py-1 bg-slate-900/90 hover:bg-slate-800 text-[10px] font-mono text-emerald-300 rounded-lg border border-slate-700/80 shadow-sm flex items-center gap-1.5 active:scale-95 transition cursor-pointer touch-manipulation min-h-[34px]"
           title="Spritz foliage with fine mist"
         >
-          <Wind className="w-2.5 h-2.5" />
+          <Wind className="w-3.5 h-3.5" />
           <span>Mist</span>
         </button>
         <button
           onClick={handleCycleVariety}
-          className="px-1.5 py-0.5 bg-slate-900/80 hover:bg-slate-800 text-[9px] font-mono text-amber-300 rounded border border-slate-700/80 shadow-sm flex items-center gap-1 active:scale-90 transition cursor-pointer"
+          className="px-2.5 py-1 bg-slate-900/90 hover:bg-slate-800 text-[10px] font-mono text-amber-300 rounded-lg border border-slate-700/80 shadow-sm flex items-center gap-1.5 active:scale-95 transition cursor-pointer touch-manipulation min-h-[34px]"
           title="Switch plant species"
         >
-          <RefreshCw className="w-2.5 h-2.5" />
+          <RefreshCw className="w-3.5 h-3.5" />
           <span>Species</span>
         </button>
       </div>

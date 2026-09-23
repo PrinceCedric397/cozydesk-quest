@@ -105,6 +105,44 @@
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
 
+/* Mobile Touch Slider Optimizations */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  touch-action: pan-y;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #38bdf8;
+  cursor: pointer;
+  border: 3px solid #0f172a;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  margin-top: -10px;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #38bdf8;
+  cursor: pointer;
+  border: 3px solid #0f172a;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+/* Touch targets and mobile container utilities */
+.touch-hitbox {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Retro Lightbulb Filament Startup Flicker */
 @keyframes retroBulbFlickerOn {
   0% {
@@ -258,6 +296,28 @@
 
 .animate-aroma-float {
   animation: aromaFloat 1.2s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes warmPulseGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 14px rgba(251, 191, 36, 0.45));
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(251, 191, 36, 0.75));
+  }
+}
+
+.animate-warm-glow {
+  animation: warmPulseGlow 3s ease-in-out infinite;
 }
 
 

@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Pin, Sparkles, Heart, Coffee, Star, Flame, Search, Maximize2, ArrowUpDown, Camera, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, X, Pin, Sparkles, Heart, Coffee, Star, Flame, Search, Maximize2, ArrowUpDown, Camera, ZoomIn, ZoomOut, Cloud } from 'lucide-react';
 import { CorkboardNote } from '../types';
 import { playChime, playWinFanfare, playPinTackSound, playStampSound, playMechanicalClick, playPaperRustleSound } from '../utils/audio';
 import { AddPolaroidModal } from './AddPolaroidModal';
+import { getWashiTapeOption, FILM_GRAIN_SVG_DATA } from '../data/curatedPolaroids';
+import { useFirebase } from '../firebase/FirebaseContext';
 
 interface CorkboardModalProps {
   isOpen: boolean;
@@ -33,6 +35,7 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   onReactNote,
   onOpenExpandedStudio,
 }) => {
+  const { user, signInWithGoogle } = useFirebase();
   const [authorName, setAuthorName] = useState('Anonymous');
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [message, setMessage] = useState('');
@@ -43,6 +46,14 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'reactions'>('newest');
   const [isPolaroidModalOpen, setIsPolaroidModalOpen] = useState(false);
   const [cardZoom, setCardZoom] = useState<number>(1.0);
+
+  // Auto-fill author name from Firebase Auth when signed in
+  useEffect(() => {
+    if (user?.displayName) {
+      setAuthorName(user.displayName);
+      setIsAnonymous(false);
+    }
+  }, [user]);
 
   // Keyboard zoom controls inside Corkboard modal
   useEffect(() => {
@@ -165,28 +176,42 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6">
       <div className="bg-slate-900 border-2 border-[#ff9e80] rounded-3xl w-full max-w-4xl max-h-[92vh] shadow-2xl flex flex-col overflow-hidden relative">
         {/* Header */}
-        <div className="bg-slate-900 border-b border-slate-800 px-5 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#ff9e80]/20 text-[#ff9e80] border border-[#ff9e80]/40 flex items-center justify-center text-xl">
+        <div className="bg-slate-900 border-b border-slate-800 px-3 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Back button */}
+            <button
+              onClick={() => {
+                playMechanicalClick('toggle', 0.08);
+                onClose();
+              }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-amber-300 hover:text-amber-200 border border-amber-400/40 rounded-xl text-xs font-display font-bold transition active:scale-95 shadow-sm cursor-pointer touch-manipulation min-h-[38px] shrink-0"
+              title="Back to Cozy Desk (Esc)"
+              aria-label="Back to Cozy Desk"
+            >
+              <ArrowLeft className="w-4 h-4 text-amber-400" />
+              <span>Back</span>
+            </button>
+
+            <div className="hidden xs:flex w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#ff9e80]/20 text-[#ff9e80] border border-[#ff9e80]/40 items-center justify-center text-xl shrink-0">
               📌
             </div>
-            <div>
-              <h3 className="font-display font-bold text-base sm:text-lg text-white flex items-center gap-2">
-                <span>Cozy Desk Bulletin Board</span>
+            <div className="min-w-0">
+              <h3 className="font-display font-bold text-sm sm:text-lg text-white flex items-center gap-1.5 truncate">
+                <span className="truncate">Cozy Bulletin Board</span>
                 <span className="text-xs font-mono text-slate-400 font-normal hidden sm:inline">
-                  • Interactive Corkboard
+                  • Corkboard
                 </span>
               </h3>
-              <p className="text-xs text-slate-400 font-mono flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[9px] bg-emerald-400/20 text-emerald-400 border border-emerald-400/40 font-mono">
-                  ● {notes.length} Notes Pinned
+              <p className="text-[11px] sm:text-xs text-slate-400 font-mono flex items-center gap-1.5">
+                <span className="px-1.5 sm:px-2 py-0.5 rounded text-[9px] bg-emerald-400/20 text-emerald-400 border border-emerald-400/40 font-mono shrink-0">
+                  ● {notes.length} Pinned
                 </span>
-                <span>Stamp reactions to encourage creators!</span>
+                <span className="hidden xs:inline truncate">Stamp reactions to encourage creators!</span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {onOpenExpandedStudio && (
               <button
                 onClick={() => {
@@ -194,12 +219,12 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                   onClose();
                   onOpenExpandedStudio();
                 }}
-                className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl text-xs font-display font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm"
+                className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl text-xs font-display font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm touch-manipulation min-h-[38px]"
                 title="Expand to Full 2800x2200 Pannable Studio (F)"
               >
                 <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden xs:inline">Expanded Studio</span>
-                <span className="text-[9px] bg-amber-400/20 px-1 rounded border border-amber-400/30">F</span>
+                <span className="hidden sm:inline">Studio</span>
+                <span className="hidden sm:inline text-[9px] bg-amber-400/20 px-1 rounded border border-amber-400/30">F</span>
               </button>
             )}
 
@@ -208,8 +233,9 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                 playMechanicalClick('toggle', 0.08);
                 onClose();
               }}
-              className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition"
+              className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition cursor-pointer touch-manipulation min-w-[38px] min-h-[38px] flex items-center justify-center"
               title="Close (Esc)"
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>
@@ -219,6 +245,29 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
         {/* Input & Form Section */}
         <div className="p-4 bg-slate-950/90 border-b border-slate-800">
           <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
+            {/* Cloud Sync Status Banner */}
+            <div className="flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded-lg bg-slate-900 border border-slate-800">
+              {user ? (
+                <div className="flex items-center gap-1.5 text-emerald-400">
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>
+                    Posting as <strong className="text-white">{authorName}</strong> (Firebase Live Cloud)
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-slate-400">Guest Mode (Local Note)</span>
+                  <button
+                    type="button"
+                    onClick={() => signInWithGoogle()}
+                    className="text-sky-400 hover:text-sky-300 underline flex items-center gap-1"
+                  >
+                    <span>Sign in with Google to pin live to cloud ☁️</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
               <div className="relative">
                 <input
@@ -470,36 +519,66 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                       )} border border-black/15 relative transition-transform hover:scale-105 duration-200 select-none`}
                     >
                       {/* Washi Tape Accent at Top */}
-                      <div
-                        style={{
-                          backgroundColor:
-                            note.washiTapeColor || 'rgba(254, 240, 138, 0.85)',
-                        }}
-                        className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-28 h-6 washi-tape -rotate-2 z-20 pointer-events-none"
-                      />
+                      {(() => {
+                        const washi = getWashiTapeOption(note.washiTapeColor || 'butter');
+                        return (
+                          <div
+                            style={{
+                              backgroundColor: washi.color,
+                              backgroundImage: washi.patternCss,
+                              backgroundSize: washi.backgroundSize,
+                            }}
+                            className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-28 h-6 washi-tape -rotate-2 z-20 pointer-events-none rounded-[1px] shadow-sm"
+                          />
+                        );
+                      })()}
 
                       {/* Pushpin at Top Left */}
                       <div className="absolute -top-2 left-3 z-30">
                         <div className="pushpin-head bg-red-600 shadow-md" />
                       </div>
 
-                      {/* Photo Area with Gradient and Scene Art */}
-                      <div
-                        className={`w-full h-36 rounded-sm bg-gradient-to-br ${
-                          note.polaroidGradient || 'from-slate-700 via-sky-900 to-indigo-950'
-                        } p-3 flex flex-col justify-between text-white relative overflow-hidden shadow-inner border border-black/10 mt-1`}
-                      >
-                        <div className="text-3xl filter drop-shadow">
-                          {note.polaroidPhoto || note.emoji || '📸'}
-                        </div>
-                        <div className="relative z-10">
-                          <div className="text-[10px] font-mono uppercase tracking-wider text-amber-200 font-bold">
-                            {note.polaroidDate || 'OCT 2026'}
+                      {/* Photo Area with Gradient or Custom Photo Image */}
+                      <div className="w-full h-36 rounded-sm bg-slate-950 relative overflow-hidden shadow-inner border border-black/10 mt-1">
+                        {note.polaroidImageUrl ? (
+                          <div className="w-full h-full relative">
+                            <img
+                              src={note.polaroidImageUrl}
+                              alt={note.polaroidTitle || 'Polaroid'}
+                              className="w-full h-full object-cover"
+                            />
+                            {note.polaroidFilter === 'cozy-grain' && (
+                              <div
+                                style={{ backgroundImage: FILM_GRAIN_SVG_DATA }}
+                                className="absolute inset-0 pointer-events-none mix-blend-overlay opacity-30"
+                              />
+                            )}
+                            {note.polaroidFilter === 'soft-bloom' && (
+                              <div className="absolute inset-0 pointer-events-none bg-amber-100/20 mix-blend-screen" />
+                            )}
+                            <div className="absolute bottom-1.5 left-1.5 z-10 bg-black/60 px-1.5 py-0.5 rounded text-[9px] font-mono text-amber-200 font-bold tracking-wider backdrop-blur-xs">
+                              {note.polaroidDate || 'OCT 2026'}
+                            </div>
                           </div>
-                          <div className="text-xs font-display font-bold leading-tight drop-shadow truncate">
-                            {note.polaroidTitle || note.name}
+                        ) : (
+                          <div
+                            className={`w-full h-full bg-gradient-to-br ${
+                              note.polaroidGradient || 'from-slate-700 via-sky-900 to-indigo-950'
+                            } p-3 flex flex-col justify-between text-white relative`}
+                          >
+                            <div className="text-3xl filter drop-shadow">
+                              {note.polaroidPhoto || note.emoji || '📸'}
+                            </div>
+                            <div className="relative z-10">
+                              <div className="text-[10px] font-mono uppercase tracking-wider text-amber-200 font-bold">
+                                {note.polaroidDate || 'OCT 2026'}
+                              </div>
+                              <div className="text-xs font-display font-bold leading-tight drop-shadow truncate">
+                                {note.polaroidTitle || note.name}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Handwritten Caption */}

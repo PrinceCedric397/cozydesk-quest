@@ -242,6 +242,10 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
     e?.stopPropagation();
     if (isSipping || isPouring) return;
 
+    if (onSipQuest) {
+      onSipQuest();
+    }
+
     if (level <= 15) {
       playCeramicClinkSound(0.06);
       showThought('Mug is almost empty! Click Refill or Brew ☕');
@@ -258,10 +262,6 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
     // Random cozy thought
     const randomMsg = COZY_THOUGHTS[Math.floor(Math.random() * COZY_THOUGHTS.length)];
     showThought(randomMsg);
-
-    if (onSipQuest) {
-      onSipQuest();
-    }
 
     setTimeout(() => {
       setIsSipping(false);
@@ -300,6 +300,10 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
     e.stopPropagation();
     if (isStirring) return;
 
+    if (onSipQuest) {
+      onSipQuest();
+    }
+
     setIsStirring(true);
     playSpoonStirSound(0.07);
     showThought('Stirring with teaspoon... silky swirl! 🥄');
@@ -313,6 +317,9 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
   // 4. Add Sugar Cube
   const handleAddSugar = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (onSipQuest) {
+      onSipQuest();
+    }
     if (sugarCubes >= 4 || droppingSugar) return;
 
     setDroppingSugar(true);
@@ -586,32 +593,32 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
         </div>
 
         {/* Primary Action Buttons: Sip / Refill / Stir */}
-        <div className="grid grid-cols-3 gap-1 w-full">
+        <div className="grid grid-cols-3 gap-1.5 w-full">
           <button
             onClick={handleSip}
-            className="py-1 bg-amber-600 hover:bg-amber-500 active:scale-95 text-stone-950 rounded-lg text-[10px] font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer"
+            className="py-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-stone-950 rounded-xl text-xs font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer touch-manipulation min-h-[42px]"
             title="Take a warm sip"
           >
-            <Coffee className="w-2.5 h-2.5" />
+            <Coffee className="w-3.5 h-3.5" />
             <span>Sip</span>
           </button>
 
           <button
             onClick={handleBrewOrRefill}
-            className="py-1 bg-stone-700 hover:bg-stone-600 active:scale-95 text-stone-100 rounded-lg text-[10px] font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer"
+            className="py-2 bg-stone-700 hover:bg-stone-600 active:scale-95 text-stone-100 rounded-xl text-xs font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer touch-manipulation min-h-[42px]"
             title="Brew a fresh full cup"
           >
-            <RotateCcw className="w-2.5 h-2.5 text-amber-300" />
+            <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
             <span>Brew</span>
           </button>
 
           <button
             onClick={handleStir}
             disabled={isStirring || level <= 10}
-            className="py-1 bg-stone-800 hover:bg-stone-700 active:scale-95 text-stone-200 rounded-lg text-[10px] font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+            className="py-2 bg-stone-800 hover:bg-stone-700 active:scale-95 text-stone-200 rounded-xl text-xs font-mono font-bold shadow-md transition flex items-center justify-center gap-1 cursor-pointer touch-manipulation min-h-[42px] disabled:opacity-40"
             title="Stir coffee with spoon"
           >
-            <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span>Stir</span>
           </button>
         </div>
@@ -620,7 +627,7 @@ export const CoffeeMugWidget: React.FC<CoffeeMugWidgetProps> = ({ onSipQuest }) 
         <div className="w-full pt-1 border-t border-stone-800/80">
           <button
             onClick={() => setIsMenuOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between text-[9px] font-mono text-stone-400 hover:text-stone-200 transition py-0.5 px-1 cursor-pointer"
+            className="w-full flex items-center justify-between text-[10px] font-mono text-stone-400 hover:text-stone-200 transition py-1.5 px-1 cursor-pointer touch-manipulation min-h-[36px]"
           >
             <span className="flex items-center gap-1">
               <Palette className="w-2.5 h-2.5 text-amber-400" />
