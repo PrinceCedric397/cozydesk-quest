@@ -16,7 +16,7 @@
         },
         "photoURL": {
           "type": "string",
-          "maxLength": 512
+          "maxLength": 2048
         },
         "email": {
           "type": "string",
@@ -118,6 +118,14 @@
           "maxLength": 64
         },
         "washiTapeColor": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "polaroidImageUrl": {
+          "type": "string",
+          "maxLength": 500000
+        },
+        "polaroidFilter": {
           "type": "string",
           "maxLength": 64
         },

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFirebase } from '../firebase/FirebaseContext';
-import { X, Sparkles, Cloud, Lock } from 'lucide-react';
+import { X, Sparkles, Cloud, Lock, Pin } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { playMechanicalClick, playPaperRustleSound } from '../utils/audio';
 
@@ -22,6 +22,7 @@ interface SignInToPostModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: User) => void;
+  onPostAsGuest?: () => void;
   pendingItem?: PendingPostItem | null;
 }
 
@@ -29,6 +30,7 @@ export const SignInToPostModal: React.FC<SignInToPostModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  onPostAsGuest,
   pendingItem,
 }) => {
   const { signInWithGoogle, authError } = useFirebase();
@@ -220,6 +222,22 @@ export const SignInToPostModal: React.FC<SignInToPostModalProps> = ({
                 </>
               )}
             </button>
+
+            {/* Guest Fallback: Pin directly without sign-in */}
+            {onPostAsGuest && (
+              <button
+                type="button"
+                onClick={() => {
+                  playMechanicalClick('toggle', 0.07);
+                  onPostAsGuest();
+                  onClose();
+                }}
+                className="w-full min-h-[46px] px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500/25 active:scale-[0.98] text-amber-300 font-mono text-xs rounded-2xl border border-amber-400/40 transition cursor-pointer flex items-center justify-center gap-2 touch-manipulation"
+              >
+                <Pin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Pin Directly as Guest (Local Desk Board) 📌</span>
+              </button>
+            )}
 
             {/* Cancel / Keep Draft Button */}
             <button

@@ -21,6 +21,7 @@ import {
   Camera,
   Layers,
   Cloud,
+  Trash2,
 } from 'lucide-react';
 import { CorkboardNote } from '../types';
 import { AddPolaroidModal } from './AddPolaroidModal';
@@ -45,6 +46,7 @@ interface ExpandedCorkboardStudioProps {
   onAddNote: (note: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'> & { x?: number; y?: number }) => void;
   onReactNote: (noteId: string, type: 'heart' | 'coffee' | 'star' | 'fire') => void;
   onUpdateNotePosition?: (id: string, x: number, y: number) => void;
+  onDeleteNote?: (id: string) => void;
 }
 
 // Giant canvas dimensions
@@ -144,8 +146,13 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   onAddNote,
   onReactNote,
   onUpdateNotePosition,
+  onDeleteNote,
 }) => {
   const { user, signInWithGoogle } = useFirebase();
+  const isAdmin = Boolean(
+    user?.uid === '2icFABjzKnVc0hKXr0dUhsguxiE2' ||
+    (user?.email && user.email.toLowerCase() === 'cedriczapata30@gmail.com')
+  );
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Pan & Zoom State
@@ -153,6 +160,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   const [scale, setScale] = useState<number>(0.65);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [noteToDelete, setNoteToDelete] = useState<CorkboardNote | null>(null);
   const [showMinimap, setShowMinimap] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 768; // On mobile, collapsed by default to avoid covering canvas
@@ -185,6 +193,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
     CorkboardNote,
     'id' | 'createdAt' | 'reactions'
   > | null>(null);
+  const isSubmittingRef = useRef(false);
   const [modalAuthor, setModalAuthor] = useState('Anonymous');
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [modalMessage, setModalMessage] = useState('');
@@ -243,7 +252,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
     setPan({ x: cx, y: cy });
     panRef.current = { x: cx, y: cy };
     if (targetScale !== undefined) {
-      const clamped = Math.min(3.0, Math.max(0.25, targetScale));
+      const clamped = Math.min(3.0, Math.max(0.1, targetScale));
       setScale(clamped);
       scaleRef.current = clamped;
     }
@@ -258,8 +267,9 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
         const timer = setTimeout(() => {
           if (containerRef.current) {
             const rect = containerRef.current.getBoundingClientRect();
+            // Dynamically fit canvas on mobile screens or comfortable overview on desktop
             const fitScale = Math.min(
-              Math.max(rect.width / (BOARD_WIDTH * 0.95), 0.35),
+              Math.max((rect.width - 24) / BOARD_WIDTH, 0.12),
               0.75
             );
             centerCanvas(fitScale);
@@ -323,7 +333,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   // Zoom towards center of viewport
   const zoomTowardsCenter = useCallback((nextScale: number) => {
     if (!containerRef.current) return;
-    const clampedScale = Math.min(3.0, Math.max(0.25, +nextScale.toFixed(3)));
+    const clampedScale = Math.min(3.0, Math.max(0.1, +nextScale.toFixed(3)));
     const rect = containerRef.current.getBoundingClientRect();
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
@@ -352,7 +362,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   }, [zoomTowardsCenter]);
 
   const handleZoomOut = useCallback(() => {
-    const next = Math.max(0.25, +(scaleRef.current / 1.25).toFixed(2));
+    const next = Math.max(0.1, +(scaleRef.current / 1.25).toFixed(2));
     zoomTowardsCenter(next);
     playMechanicalClick('subtle', 0.05);
   }, [zoomTowardsCenter]);
@@ -436,7 +446,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
         zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
       }
 
-      const newScale = Math.min(3.0, Math.max(0.25, +(currentScale * zoomFactor).toFixed(3)));
+      const newScale = Math.min(3.0, Math.max(0.1, +(currentScale * zoomFactor).toFixed(3)));
       if (Math.abs(newScale - currentScale) < 0.001) return;
 
       const canvasX = (mouseX - currentPan.x) / currentScale;
@@ -480,7 +490,9 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       origPanY: panRef.current.y,
       hasMoved: false,
     };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
   };
 
   // Pointer Move on Canvas
@@ -614,7 +626,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
       if (touchStateRef.current.initialDist > 0) {
         const factor = dist / touchStateRef.current.initialDist;
-        const newScale = Math.min(3.0, Math.max(0.25, +(touchStateRef.current.initialScale * factor).toFixed(3)));
+        const newScale = Math.min(3.0, Math.max(0.1, +(touchStateRef.current.initialScale * factor).toFixed(3)));
 
         const rect = containerRef.current?.getBoundingClientRect();
         const curMidX = (t1.clientX + t2.clientX) / 2 - (rect?.left || 0);
@@ -681,7 +693,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   // Submit New Note
   const handleModalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!modalMessage.trim()) return;
+    if (!modalMessage.trim() || isSubmittingRef.current) return;
 
     // Automatic anonymous if anonymous toggle is active or if custom name was left blank
     const finalAuthor = isAnonymous
@@ -710,6 +722,9 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       return;
     }
 
+    isSubmittingRef.current = true;
+    setTimeout(() => { isSubmittingRef.current = false; }, 800);
+
     onAddNote(notePayload);
 
     setModalMessage('');
@@ -721,7 +736,10 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
 
   const handleAuthSuccess = (signedInUser: FirebaseUser) => {
     setIsAuthModalOpen(false);
-    if (pendingStudioNote) {
+    if (pendingStudioNote && !isSubmittingRef.current) {
+      isSubmittingRef.current = true;
+      setTimeout(() => { isSubmittingRef.current = false; }, 800);
+
       const authorToUse = isAnonymous
         ? 'Anonymous'
         : pendingStudioNote.name !== 'Anonymous'
@@ -1106,10 +1124,10 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
             transformOrigin: '0 0',
           }}
-          className="absolute cork-texture rounded-3xl border-[28px] border-[#3e2715] shadow-[0_30px_100px_rgba(0,0,0,0.85)] relative overflow-hidden will-change-transform"
+          className="absolute top-0 left-0 cork-texture rounded-3xl border-[20px] sm:border-[28px] border-[#3e2715] shadow-[0_15px_45px_rgba(0,0,0,0.7)] overflow-hidden"
         >
           {/* Beveled Inner Wooden Shadow & Vignette */}
-          <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_80px_rgba(0,0,0,0.65)] rounded-2xl z-20" />
+          <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_35px_rgba(0,0,0,0.5)] rounded-2xl z-20" />
 
           {/* Canvas Decorative Header Banner */}
           <div className="absolute top-8 left-12 right-12 flex items-center justify-between pointer-events-none z-10 border-b-2 border-dashed border-[#5a3818]/60 pb-3">
@@ -1130,12 +1148,13 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
           </div>
 
           {/* SVG Twine Strings Connecting Pins */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 opacity-70">
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
             {/* String from Note 1 to Polaroid */}
             <path
               d="M 680 420 Q 800 620, 950 1180"
               fill="none"
               stroke="#6b401d"
+              strokeOpacity="0.7"
               strokeWidth="2.5"
               strokeDasharray="4 2"
             />
@@ -1144,6 +1163,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
               d="M 980 1180 Q 1400 800, 1880 280"
               fill="none"
               stroke="#8a4f20"
+              strokeOpacity="0.7"
               strokeWidth="2"
               strokeDasharray="5 3"
             />
@@ -1152,6 +1172,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
               d="M 1880 320 Q 2000 480, 2180 620"
               fill="none"
               stroke="#5a310f"
+              strokeOpacity="0.7"
               strokeWidth="2"
             />
           </svg>
@@ -1211,8 +1232,8 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
             </div>
           ))}
 
-          {/* Curated Tactile Polaroids pinned on board */}
-          {CURATED_POLAROIDS.map((pol) => (
+          {/* Curated Tactile Polaroids pinned on board (only when board has no notes) */}
+          {notes.length === 0 && CURATED_POLAROIDS.map((pol) => (
             <div
               key={pol.id}
               style={{
@@ -1266,6 +1287,10 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                 note.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 (note.polaroidTitle &&
                   note.polaroidTitle.toLowerCase().includes(searchQuery.toLowerCase())));
+
+            const isAuthor = Boolean(user?.uid && note.authorId === user.uid);
+            const isLocal = !note.authorId || note.id.startsWith('local_') || note.id.startsWith('note-') || note.id.startsWith('pol-');
+            const canDelete = Boolean(onDeleteNote && (isAdmin || isAuthor || isLocal));
 
             // If Polaroid Card
             if (note.isPolaroid) {
@@ -1412,9 +1437,25 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                       </button>
                     </div>
 
-                    <span className="text-[9px] font-mono text-amber-800/80 font-bold flex items-center gap-0.5">
-                      📷 Polaroid
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-mono text-amber-800/80 font-bold flex items-center gap-0.5">
+                        📷 Polaroid
+                      </span>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNoteToDelete(note);
+                          }}
+                          className="p-1 rounded bg-black/5 hover:bg-red-500/20 text-slate-500 hover:text-red-600 transition cursor-pointer active:scale-90"
+                          title={isAdmin ? "Delete Polaroid (Admin)" : "Delete Polaroid"}
+                          aria-label="Delete Polaroid"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -1453,12 +1494,28 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                       )}
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono text-black/50">
-                    {new Date(note.createdAt).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-black/50">
+                      {new Date(note.createdAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNoteToDelete(note);
+                        }}
+                        className="p-1 rounded bg-black/5 hover:bg-red-500/20 text-slate-600 hover:text-red-700 transition cursor-pointer active:scale-90"
+                        title={isAdmin ? "Delete Memo (Admin)" : "Delete Memo"}
+                        aria-label="Delete Memo"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Message Content */}
@@ -1639,11 +1696,16 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
 
       {/* Add Note Modal inside Studio (Responsive: Mobile Bottom-Sheet, Desktop Centered) */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
-          <div className="bg-slate-900 border-t-2 sm:border-2 border-[#ff9e80] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl p-4 sm:p-5 flex flex-col gap-3 max-h-[85dvh] overflow-y-auto">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAddModalOpen(false);
+          }}
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 select-text"
+        >
+          <div className="bg-slate-900 border-t-2 sm:border-2 border-[#ff9e80] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl p-4 sm:p-5 flex flex-col max-h-[92dvh] sm:max-h-[85vh] overflow-hidden select-text">
             {/* Grab handle for mobile bottom-sheet */}
-            <div className="w-10 h-1.5 bg-slate-600 rounded-full mx-auto sm:hidden shrink-0" />
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="w-10 h-1.5 bg-slate-600 rounded-full mx-auto sm:hidden shrink-0 mb-1" />
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-xl">📌</span>
                 <h3 className="font-display font-bold text-white text-base">
@@ -1651,14 +1713,16 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-white p-2 rounded-lg touch-manipulation min-w-[36px] min-h-[36px] flex items-center justify-center"
+                className="text-slate-400 hover:text-white p-2 rounded-lg touch-manipulation min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleModalSubmit} className="flex flex-col gap-3">
+            <form onSubmit={handleModalSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 flex flex-col gap-3 py-1">
               {/* Cloud Status Banner */}
               <div className="flex items-center justify-between text-[11px] font-mono px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800">
                 {user?.isAnonymous ? (
@@ -1877,19 +1941,22 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              </div>
+
+              {/* Sticky Action Footer */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800 shrink-0 bg-slate-900">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-mono rounded-lg transition"
+                  className="min-h-[44px] px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-mono rounded-xl transition text-slate-300 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#ff9e80] hover:bg-amber-400 text-slate-950 font-display font-bold text-xs rounded-lg transition active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer"
+                  className="min-h-[44px] px-5 py-2.5 bg-[#ff9e80] hover:bg-amber-400 active:scale-95 text-slate-950 font-display font-bold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
                 >
-                  <Pin className="w-3.5 h-3.5" />
+                  <Pin className="w-3.5 h-3.5 fill-slate-950" />
                   <span>Pin to Studio Board</span>
                 </button>
               </div>
@@ -1908,8 +1975,24 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       {/* Guest User Authentication Prompt */}
       <SignInToPostModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setPendingStudioNote(null);
+        }}
         onSuccess={handleAuthSuccess}
+        onPostAsGuest={() => {
+          if (pendingStudioNote && !isSubmittingRef.current) {
+            isSubmittingRef.current = true;
+            setTimeout(() => { isSubmittingRef.current = false; }, 800);
+            onAddNote(pendingStudioNote);
+            setPendingStudioNote(null);
+            setModalMessage('');
+            setIsAddModalOpen(false);
+            setPendingPinCoords(null);
+            playPinTackSound(0.12);
+            setTimeout(() => playWinFanfare(), 150);
+          }
+        }}
         pendingItem={
           pendingStudioNote
             ? {
@@ -1923,6 +2006,59 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
             : null
         }
       />
+
+      {/* In-App Delete Confirmation Modal (Avoids window.confirm blocked by iframes) */}
+      {noteToDelete && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={() => setNoteToDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#fffdf9] border-2 border-stone-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-stone-900 animate-scale-up"
+          >
+            <div className="flex items-center gap-2.5 mb-3 text-red-600">
+              <div className="p-2 rounded-xl bg-red-100/80">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base font-sans">Delete from Corkboard?</h3>
+                <span className="text-[11px] font-mono text-stone-500">
+                  {isAdmin ? 'Admin deletion privileges active' : 'Author action'}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-stone-700 mb-5 font-mono leading-relaxed bg-amber-50/60 p-3 rounded-lg border border-amber-200/60">
+              Permanently remove {noteToDelete.isPolaroid ? 'polaroid' : 'memo'}{' '}
+              <strong className="text-stone-900">
+                "{noteToDelete.polaroidTitle || noteToDelete.name || noteToDelete.message?.slice(0, 25) || 'this note'}"
+              </strong>{' '}
+              from the live Community Corkboard?
+            </p>
+            <div className="flex items-center justify-end gap-2.5 font-sans">
+              <button
+                type="button"
+                onClick={() => setNoteToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-stone-300 text-xs font-bold hover:bg-stone-100 transition cursor-pointer text-stone-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = noteToDelete.id;
+                  setNoteToDelete(null);
+                  onDeleteNote?.(id);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold shadow-md hover:shadow-red-600/30 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useFirebase } from './firebase/FirebaseContext';
+import { useFirebase, getOrCreateGuestId } from './firebase/FirebaseContext';
 import { CelestialSky } from './components/CelestialSky';
 import { DeskHeader } from './components/DeskHeader';
 import { DeskFooter } from './components/DeskFooter';
@@ -187,6 +187,8 @@ const INITIAL_CORKBOARD_NOTES: CorkboardNote[] = [
   },
 ];
 
+const INITIAL_CORKBOARD_IDS = new Set(INITIAL_CORKBOARD_NOTES.map((n) => n.id));
+
 const INITIAL_STICKY_NOTES: StickyNoteData[] = [
   {
     id: 'sticky-1',
@@ -224,6 +226,7 @@ export default function App() {
     addCorkNoteCloud,
     reactCorkNoteCloud,
     updateCorkNotePositionCloud,
+    deleteCorkNoteCloud,
     saveUserProfileCloud,
     loadUserProfileCloud,
   } = useFirebase();
@@ -492,13 +495,80 @@ export default function App() {
     } catch {}
   }, [positions]);
 
-  // Corkboard notes to display: prefers real-time Firebase cloud collection when available
+  // Corkboard notes to display: merges real-time Firebase cloud collection with local notes,
+  // strictly eliminating all duplicates (by ID, signature, or legacy un-reconciled IDs)
   const displayCorkNotes = useMemo(() => {
-    if (isCorkNotesLoadedFromCloud && cloudCorkNotes.length > 0) {
-      return cloudCorkNotes;
+    const cloudIds = new Set(cloudCorkNotes.map((n) => n.id));
+
+    const localFiltered = corkNotes.filter((localNote) => {
+      // If cloud notes exist, exclude static initial template seeds
+      if (isCorkNotesLoadedFromCloud && cloudCorkNotes.length > 0 && INITIAL_CORKBOARD_IDS.has(localNote.id)) {
+        return false;
+      }
+      // If exact ID exists in cloud, omit local copy
+      if (cloudIds.has(localNote.id)) {
+        return false;
+      }
+      // Fuzzy deduplication: if cloud has a note with identical author, message, and created within 60s
+      const isAlreadyInCloud = cloudCorkNotes.some(
+        (cn) =>
+          cn.name.trim() === localNote.name.trim() &&
+          cn.message.trim() === localNote.message.trim() &&
+          Boolean(cn.isPolaroid) === Boolean(localNote.isPolaroid) &&
+          Math.abs(cn.createdAt - localNote.createdAt) < 60000
+      );
+      if (isAlreadyInCloud) {
+        return false;
+      }
+      return true;
+    });
+
+    const combined = isCorkNotesLoadedFromCloud && cloudCorkNotes.length > 0
+      ? [...localFiltered, ...cloudCorkNotes]
+      : corkNotes;
+
+    // Final strict deduplication pass
+    const seenIds = new Set<string>();
+    const seenSignatures = new Set<string>();
+    const result: CorkboardNote[] = [];
+
+    for (const note of combined) {
+      if (seenIds.has(note.id)) continue;
+
+      const timeBucket = Math.round(note.createdAt / 15000);
+      const sig = `${note.name.trim()}::${note.message.trim()}::${note.isPolaroid ? note.polaroidTitle || '' : ''}::${timeBucket}`;
+      if (seenSignatures.has(sig)) continue;
+
+      seenIds.add(note.id);
+      seenSignatures.add(sig);
+      result.push(note);
     }
-    return corkNotes;
+
+    return result.sort((a, b) => b.createdAt - a.createdAt);
   }, [isCorkNotesLoadedFromCloud, cloudCorkNotes, corkNotes]);
+
+  // Clean up any legacy or duplicate local notes in state/localStorage once cloud notes load
+  useEffect(() => {
+    if (!isCorkNotesLoadedFromCloud || cloudCorkNotes.length === 0) return;
+    const cloudIds = new Set(cloudCorkNotes.map((n) => n.id));
+    setCorkNotes((prev) => {
+      const cleaned = prev.filter((localNote) => {
+        if (cloudIds.has(localNote.id)) return false;
+        const matchesCloud = cloudCorkNotes.some(
+          (cn) =>
+            cn.name.trim() === localNote.name.trim() &&
+            cn.message.trim() === localNote.message.trim() &&
+            Boolean(cn.isPolaroid) === Boolean(localNote.isPolaroid) &&
+            Math.abs(cn.createdAt - localNote.createdAt) < 60000
+        );
+        return !matchesCloud;
+      });
+      if (cleaned.length !== prev.length) {
+        return cleaned;
+      }
+      return prev;
+    });
+  }, [isCorkNotesLoadedFromCloud, cloudCorkNotes]);
 
   // Hydrate user profile from Firebase Firestore on sign-in
   useEffect(() => {
@@ -1103,15 +1173,13 @@ export default function App() {
   };
 
   const handlePinToCorkboard = async (note: StickyNoteData) => {
-    // Detect that there is no authenticated Firebase user BEFORE attempting Firestore write
-    if (!user) {
-      setPendingDeskPinNote(note);
-      setIsDeskPinAuthOpen(true);
-      return;
-    }
+    const noteId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const guestId = getOrCreateGuestId();
+    const currentAuthorId = user?.uid || `guest_${guestId}`;
+    const authorName = note.title || (user ? user.displayName || 'Desk Memo' : 'Desk Memo');
 
     const noteData = {
-      name: note.title || user.displayName || 'Desk Memo',
+      name: authorName,
       message: note.content,
       color: note.color,
       fontClass: note.fontClass,
@@ -1119,21 +1187,33 @@ export default function App() {
       category: 'memo' as const,
     };
 
+    const newLocalNote: CorkboardNote = {
+      id: noteId,
+      authorId: currentAuthorId,
+      createdAt: Date.now(),
+      reactions: { heart: 1, coffee: 0, star: 0, fire: 0 },
+      ...noteData,
+    };
+
+    setCorkNotes((prev) => [newLocalNote, ...prev.filter((n) => n.id !== noteId)]);
+    completeQuest('pin_corkboard');
+    updateStarterStep('expanded_board_note');
+    setIsCorkboardOpen(true);
+    playPinTackSound(0.09);
+
     try {
-      await addCorkNoteCloud(noteData);
-      completeQuest('pin_corkboard');
-      updateStarterStep('expanded_board_note');
-      setIsCorkboardOpen(true);
-      playPinTackSound(0.09);
+      await addCorkNoteCloud(noteData, noteId);
       showToast('Desk note pinned to Community Corkboard (Live in Cloud)! 📌☁️');
     } catch (err) {
       console.warn('Notice adding note to cloud:', err);
+      showToast('Pinned to your desk corkboard! 📌');
     }
   };
 
   const handleDeskPinAuthSuccess = async (signedInUser: FirebaseUser) => {
     setIsDeskPinAuthOpen(false);
     if (pendingDeskPinNote) {
+      const noteId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const noteData = {
         name: pendingDeskPinNote.title || signedInUser.displayName || 'Desk Memo',
         message: pendingDeskPinNote.content,
@@ -1143,12 +1223,22 @@ export default function App() {
         category: 'memo' as const,
       };
 
+      const newLocalNote: CorkboardNote = {
+        id: noteId,
+        authorId: signedInUser.uid,
+        createdAt: Date.now(),
+        reactions: { heart: 1, coffee: 0, star: 0, fire: 0 },
+        ...noteData,
+      };
+
+      setCorkNotes((prev) => [newLocalNote, ...prev.filter((n) => n.id !== noteId)]);
+      completeQuest('pin_corkboard');
+      updateStarterStep('expanded_board_note');
+      setIsCorkboardOpen(true);
+      playPinTackSound(0.09);
+
       try {
-        await addCorkNoteCloud(noteData);
-        completeQuest('pin_corkboard');
-        updateStarterStep('expanded_board_note');
-        setIsCorkboardOpen(true);
-        playPinTackSound(0.09);
+        await addCorkNoteCloud(noteData, noteId);
         showToast('Desk note pinned to Community Corkboard (Live in Cloud)! 📌☁️');
       } catch (err) {
         console.warn('Notice adding note to cloud after sign in:', err);
@@ -1160,16 +1250,30 @@ export default function App() {
 
   // Corkboard Note Adding
   const handleAddCorkNote = async (data: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>) => {
-    if (user) {
-      try {
-        await addCorkNoteCloud(data);
-        completeQuest('pin_corkboard');
-        updateStarterStep('expanded_board_note');
-        playPinTackSound(0.09);
-        showToast('Pinned to Community Corkboard (Live in Cloud)! 📌☁️');
-      } catch (err) {
-        console.warn('Notice adding note to cloud, saving locally:', err);
-      }
+    const noteId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const guestId = getOrCreateGuestId();
+    const currentAuthorId = user?.uid || `guest_${guestId}`;
+
+    const newLocalNote: CorkboardNote = {
+      id: noteId,
+      authorId: currentAuthorId,
+      createdAt: Date.now(),
+      reactions: { heart: 1, coffee: 0, star: 0, fire: 0 },
+      ...data,
+    };
+
+    // Immediately persist to local corkboard state with the exact same canonical ID
+    setCorkNotes((prev) => [newLocalNote, ...prev.filter((n) => n.id !== noteId)]);
+    completeQuest('pin_corkboard');
+    updateStarterStep('expanded_board_note');
+    playPinTackSound(0.09);
+
+    try {
+      await addCorkNoteCloud(data, noteId);
+      showToast(user ? 'Pinned to Community Corkboard (Live in Cloud)! 📌☁️' : 'Pinned & Synced to Community Corkboard! 📌☁️');
+    } catch (err) {
+      console.warn('Notice adding note to cloud, saved locally:', err);
+      showToast('Pinned to your desk corkboard! 📌');
     }
   };
 
@@ -1212,6 +1316,20 @@ export default function App() {
     setCorkNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, x, y } : n))
     );
+  };
+
+  const handleDeleteCorkNote = async (id: string) => {
+    // 1. Remove optimistically from local state
+    setCorkNotes((prev) => prev.filter((n) => n.id !== id));
+    playPaperRustleSound('flutter', 0.08);
+
+    // 2. Delete from cloud
+    try {
+      await deleteCorkNoteCloud(id);
+      showToast('Note removed from Corkboard 🗑️');
+    } catch {
+      // Fallback
+    }
   };
 
   const handleResetLayout = () => {
@@ -1751,6 +1869,7 @@ export default function App() {
         notes={displayCorkNotes}
         onAddNote={handleAddCorkNote}
         onReactNote={handleReactCorkNote}
+        onDeleteNote={handleDeleteCorkNote}
         onOpenExpandedStudio={handleOpenExpandedStudio}
       />
 
@@ -1762,6 +1881,7 @@ export default function App() {
         onAddNote={handleAddCorkNote}
         onReactNote={handleReactCorkNote}
         onUpdateNotePosition={handleUpdateCorkNotePosition}
+        onDeleteNote={handleDeleteCorkNote}
       />
 
       {/* Welcome Modal for First-Time Visitors */}

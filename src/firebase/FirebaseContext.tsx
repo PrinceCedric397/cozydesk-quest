@@ -38,6 +38,19 @@ export interface UserCloudProfile {
   updatedAt?: string;
 }
 
+export const getOrCreateGuestId = (): string => {
+  try {
+    let gid = localStorage.getItem('cozydesk_guest_id');
+    if (!gid || !/^[a-zA-Z0-9_\-]+$/.test(gid)) {
+      gid = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('cozydesk_guest_id', gid);
+    }
+    return gid;
+  } catch {
+    return 'guest_desk';
+  }
+};
+
 interface FirebaseContextType {
   user: User | null;
   authLoading: boolean;
@@ -49,7 +62,10 @@ interface FirebaseContextType {
   signOutUser: () => Promise<void>;
   cloudCorkNotes: CorkboardNote[];
   isCorkNotesLoadedFromCloud: boolean;
-  addCorkNoteCloud: (note: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>) => Promise<string | null>;
+  addCorkNoteCloud: (
+    note: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>,
+    customId?: string
+  ) => Promise<string | null>;
   reactCorkNoteCloud: (noteId: string, type: 'heart' | 'coffee' | 'star' | 'fire') => Promise<void>;
   updateCorkNotePositionCloud: (noteId: string, x: number, y: number) => Promise<void>;
   deleteCorkNoteCloud: (noteId: string) => Promise<void>;
@@ -70,6 +86,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isCorkNotesLoadedFromCloud, setIsCorkNotesLoadedFromCloud] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [authError, setAuthError] = useState<string | null>(null);
+  const isSigningInRef = useRef(false);
 
   const clearAuthError = useCallback(() => {
     setAuthError(null);
@@ -160,6 +177,11 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Sign In with Google via Popup
   const signInWithGoogle = useCallback(async (): Promise<User | null> => {
+    if (isSigningInRef.current) {
+      return auth.currentUser;
+    }
+    isSigningInRef.current = true;
+
     try {
       setSyncStatus('syncing');
       setAuthError(null);
@@ -173,26 +195,23 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
           const userDocRef = doc(db, USERS_PATH, signedInUser.uid);
           const existingSnap = await getDoc(userDocRef);
+          const defaultDisplayName = (signedInUser.displayName || 'Cozy Explorer').slice(0, 128);
+          const userEmail = (signedInUser.email || '').slice(0, 256);
+          const userPhoto = (signedInUser.photoURL || '').slice(0, 2048);
+
+          const initialPayload: Record<string, any> = {
+            userId: signedInUser.uid,
+            displayName: defaultDisplayName,
+            email: userEmail,
+            photoURL: userPhoto,
+            updatedAt: serverTimestamp(),
+          };
           if (!existingSnap.exists()) {
-            await setDoc(userDocRef, {
-              userId: signedInUser.uid,
-              displayName: signedInUser.displayName || 'Cozy Explorer',
-              email: signedInUser.email || '',
-              photoURL: signedInUser.photoURL || '',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-          } else {
-            const updatePayload: Record<string, any> = {
-              updatedAt: serverTimestamp(),
-            };
-            if (signedInUser.displayName) updatePayload.displayName = signedInUser.displayName;
-            if (signedInUser.email) updatePayload.email = signedInUser.email;
-            if (signedInUser.photoURL) updatePayload.photoURL = signedInUser.photoURL;
-            await updateDoc(userDocRef, updatePayload);
+            initialPayload.createdAt = serverTimestamp();
           }
+          await setDoc(userDocRef, initialPayload, { merge: true });
         } catch (dbErr) {
-          handleFirestoreError(dbErr, OperationType.WRITE, `${USERS_PATH}/${signedInUser.uid}`);
+          console.warn('Initial profile sync notice:', dbErr);
         }
       }
       setSyncStatus('synced');
@@ -200,6 +219,18 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } catch (error: any) {
       const code = error?.code || '';
       const msg = error?.message || String(error || '');
+
+      // Recover gracefully from Firebase internal assertion error during popup handling
+      if (msg.includes('Pending promise was never set')) {
+        if (auth.currentUser) {
+          setUser(auth.currentUser);
+          setSyncStatus('synced');
+          setAuthError(null);
+          return auth.currentUser;
+        }
+        setSyncStatus('idle');
+        return null;
+      }
 
       // User closed popup
       if (
@@ -225,6 +256,8 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const friendlyNotice = msg.replace(/^Firebase:\s*/, '') || 'Sign-in could not be completed.';
       setAuthError(friendlyNotice);
       return null;
+    } finally {
+      isSigningInRef.current = false;
     }
   }, []);
 
@@ -242,13 +275,13 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Add a new Corkboard note or polaroid
   const addCorkNoteCloud = useCallback(
-    async (noteData: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>): Promise<string | null> => {
-      const currentUid = auth.currentUser?.uid;
-      if (!currentUid) {
-        throw new Error('Please sign in with Google to post your memo to the live Community Board.');
-      }
-
-      const noteId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    async (
+      noteData: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>,
+      customId?: string
+    ): Promise<string | null> => {
+      const guestId = getOrCreateGuestId();
+      const currentUid = auth.currentUser?.uid || `guest_${guestId}`;
+      const noteId = customId || `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const docRef = doc(db, CORKBOARD_PATH, noteId);
       const defaultName = auth.currentUser?.displayName || 'Anonymous';
 
@@ -269,7 +302,10 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (noteData.polaroidGradient) payload.polaroidGradient = noteData.polaroidGradient.slice(0, 128);
       if (noteData.polaroidDate) payload.polaroidDate = noteData.polaroidDate.slice(0, 64);
       if (noteData.washiTapeColor) payload.washiTapeColor = noteData.washiTapeColor.slice(0, 64);
-      if (noteData.polaroidImageUrl) payload.polaroidImageUrl = noteData.polaroidImageUrl;
+      if (noteData.polaroidImageUrl) {
+        // Enforce maximum photo data URI size constraint (500KB)
+        payload.polaroidImageUrl = noteData.polaroidImageUrl.slice(0, 480000);
+      }
       if (noteData.polaroidFilter) payload.polaroidFilter = noteData.polaroidFilter.slice(0, 64);
       if (noteData.category) payload.category = noteData.category.slice(0, 32);
       if (typeof noteData.x === 'number') payload.x = noteData.x;
@@ -281,6 +317,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return noteId;
       } catch (error) {
         handleFirestoreError(error, OperationType.CREATE, `${CORKBOARD_PATH}/${noteId}`);
+        throw error;
       }
     },
     []
@@ -328,12 +365,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!currentUid) {
         return;
       }
+      // Optimistically remove from cloud notes state immediately
+      setCloudCorkNotes((prev) => prev.filter((n) => n.id !== noteId));
       const docPath = `${CORKBOARD_PATH}/${noteId}`;
       try {
         const docRef = doc(db, CORKBOARD_PATH, noteId);
         await deleteDoc(docRef);
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, docPath);
+        throw error;
       }
     },
     []
@@ -358,15 +398,19 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
           const docRef = doc(db, USERS_PATH, currentUid);
           const existingSnap = await getDoc(docRef);
-          const defaultDisplayName = auth.currentUser?.isAnonymous
-            ? 'Guest Explorer'
-            : (auth.currentUser?.displayName || 'Cozy Explorer');
+          const defaultDisplayName = (
+            auth.currentUser?.isAnonymous
+              ? 'Guest Explorer'
+              : (auth.currentUser?.displayName || 'Cozy Explorer')
+          ).slice(0, 128);
+          const emailStr = (auth.currentUser?.email || '').slice(0, 256);
+          const photoUrlStr = (auth.currentUser?.photoURL || '').slice(0, 2048);
 
           const updatePayload: Record<string, any> = {
             userId: currentUid,
-            displayName: auth.currentUser?.displayName || defaultDisplayName,
-            email: auth.currentUser?.email || '',
-            photoURL: auth.currentUser?.photoURL || '',
+            displayName: defaultDisplayName,
+            email: emailStr,
+            photoURL: photoUrlStr,
             updatedAt: serverTimestamp(),
           };
 

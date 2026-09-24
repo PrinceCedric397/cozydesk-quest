@@ -118,6 +118,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
   const developTimerRef = useRef<number | null>(null);
   const devProgressAnimRef = useRef<number | null>(null);
+  const isSubmittingRef = useRef<boolean>(false);
 
   const activeFilter: VintageFilterPreset = getFilterPreset(selectedFilterId);
   const currentWashiOption: WashiTapeOption = getWashiTapeOption(selectedWashi);
@@ -192,6 +193,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
 
   // Reset or initialize when modal opens/closes
   useEffect(() => {
+    isSubmittingRef.current = false;
     if (isOpen) {
       setIsDeveloping(false);
       setDevelopProgress(0);
@@ -512,6 +514,14 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
 
   // Finalize Submission
   const finalizeSubmission = async (authorOverride?: string) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    if (devProgressAnimRef.current) {
+      cancelAnimationFrame(devProgressAnimRef.current);
+      devProgressAnimRef.current = null;
+    }
+
     playPinTackSound(0.12);
     playWinFanfare();
 
@@ -551,6 +561,13 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   };
 
   const triggerDevelopingAndSubmit = (authorOverride?: string) => {
+    if (isSubmittingRef.current || isDeveloping) return;
+
+    if (devProgressAnimRef.current) {
+      cancelAnimationFrame(devProgressAnimRef.current);
+      devProgressAnimRef.current = null;
+    }
+
     // Trigger instant camera shutter and flash
     setShowShutterFlash(true);
     playCameraShutterSound(0.14);
@@ -581,17 +598,30 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
     devProgressAnimRef.current = requestAnimationFrame(updateDeveloping);
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customCaption.trim() || !customTitle.trim() || isDeveloping) return;
+  const handleDirectSubmit = () => {
+    if (isDeveloping || isSubmittingRef.current) return;
 
-    // Detect that there is no authenticated Firebase user before attempting write
+    // Use selected preset defaults if custom values were left blank
+    const titleToUse = customTitle.trim() || selectedPreset.title;
+    const captionToUse = customCaption.trim() || selectedPreset.desc;
+    const photographerToUse = photographer.trim() || 'Cozy Wanderer';
+
+    setCustomTitle(titleToUse);
+    setCustomCaption(captionToUse);
+    setPhotographer(photographerToUse);
+
+    // Detect that there is no authenticated Firebase user before attempting cloud write
     if (!user) {
       setIsAuthModalOpen(true);
       return;
     }
 
     triggerDevelopingAndSubmit();
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleDirectSubmit();
   };
 
   const handleAuthSuccess = (signedInUser: FirebaseUser) => {
@@ -604,7 +634,11 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   };
 
   const handleSkipDeveloping = () => {
-    if (devProgressAnimRef.current) cancelAnimationFrame(devProgressAnimRef.current);
+    if (isSubmittingRef.current) return;
+    if (devProgressAnimRef.current) {
+      cancelAnimationFrame(devProgressAnimRef.current);
+      devProgressAnimRef.current = null;
+    }
     finalizeSubmission();
   };
 
@@ -626,7 +660,13 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="polaroid-studio-title"
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col justify-end md:justify-center md:items-center p-0 md:p-4 animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isDeveloping) {
+          stopCameraStream();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col justify-end md:justify-center md:items-center p-0 md:p-4 select-text"
     >
       {/* Full-screen Shutter Flash Burst Effect */}
       {showShutterFlash && (
@@ -634,7 +674,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
       )}
 
       {/* Main Studio Modal Container */}
-      <div className="bg-slate-900 border-t-2 md:border-2 border-amber-400/70 rounded-t-3xl md:rounded-3xl w-full md:max-w-4xl max-h-[96vh] md:max-h-[90vh] shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden relative">
+      <div className="bg-[#0f172a] border-t-2 md:border-2 border-amber-400/70 rounded-t-3xl md:rounded-3xl w-full md:max-w-4xl h-[94dvh] md:h-auto max-h-[94dvh] md:max-h-[90vh] shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden relative select-text">
         {/* Header Bar */}
         <div className="bg-slate-950 border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -664,7 +704,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
               onClick={cycleRotation}
               disabled={isDeveloping}
               title={`Polaroid Tilt: ${rotationAngle}° (click to cycle)`}
-              className="min-h-[48px] min-w-[48px] px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-amber-300 text-xs font-mono flex items-center gap-1.5 active:scale-[0.96] transition-transform cursor-pointer"
+              className="min-h-[48px] min-w-[48px] px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-amber-300 text-xs font-mono flex items-center gap-1.5 active:scale-[0.96] transition-transform cursor-pointer touch-manipulation"
             >
               <RotateCw className="w-4 h-4 text-amber-400" />
               <span className="text-[11px] font-bold">
@@ -682,7 +722,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
               }}
               disabled={isDeveloping}
               aria-label="Close Polaroid Studio"
-              className="min-h-[48px] min-w-[48px] text-slate-400 hover:text-white p-2.5 rounded-xl hover:bg-slate-800 transition active:scale-[0.96] flex items-center justify-center cursor-pointer"
+              className="min-h-[48px] min-w-[48px] text-slate-400 hover:text-white p-2.5 rounded-xl hover:bg-slate-800 transition active:scale-[0.96] flex items-center justify-center cursor-pointer touch-manipulation"
             >
               <X className="w-5 h-5" />
             </button>
@@ -692,16 +732,16 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
         {/* Modal Body Container */}
         <div className="flex-1 overflow-hidden flex flex-col md:grid md:grid-cols-12 bg-[#0c0e17]">
           {/* ========================================================================= */}
-          {/* MOBILE STICKY PREVIEW BAR (Shown on screens < md)                         */}
+          {/* MOBILE PREVIEW BAR (Shown on screens < md)                                */}
           {/* ========================================================================= */}
           <div
             ref={previewRef}
-            className={`md:hidden sticky top-0 z-20 cork-texture p-3 border-b-2 border-amber-950/70 shadow-xl flex flex-col items-center justify-center transition-all duration-300 ${
-              isInputFocused ? 'max-h-[145px] py-1.5' : 'max-h-[225px]'
+            className={`md:hidden shrink-0 overflow-hidden w-full bg-[#9d6837] cork-texture border-b-2 border-amber-950/70 shadow-lg flex flex-col items-center justify-center transition-all duration-300 ${
+              isInputFocused ? 'h-[145px] py-1.5' : 'h-[220px] py-2'
             }`}
           >
             {/* Live tactile mini card header */}
-            <div className="w-full max-w-[280px] flex items-center justify-between mb-1 z-10 px-1">
+            <div className="w-full max-w-[270px] flex items-center justify-between mb-1 z-10 px-1 shrink-0">
               <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-100 bg-amber-950/90 px-2 py-0.5 rounded border border-amber-800/60 shadow-sm flex items-center gap-1">
                 <span>Tactile Preview</span>
                 {isDeveloping && (
@@ -710,20 +750,20 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                   </span>
                 )}
               </span>
-              <span className="text-[9px] font-mono text-amber-200/90 font-medium flex items-center gap-1">
-                <span>{activeFilter.name}</span>
+              <span className="text-[9px] font-mono text-amber-200/90 font-medium flex items-center gap-1 truncate max-w-[130px]">
+                <span className="truncate">{activeFilter.name}</span>
                 <span>•</span>
-                <span>{currentWashiOption.name}</span>
+                <span className="truncate">{currentWashiOption.name}</span>
               </span>
             </div>
 
             {/* Mobile Polaroid Card View */}
             <div
               style={{
-                transform: `rotate(${rotationAngle}deg) scale(${isInputFocused ? 0.72 : 0.86})`,
+                transform: `rotate(${rotationAngle}deg) scale(${isInputFocused ? 0.65 : 0.8})`,
                 transformOrigin: 'top center',
               }}
-              className="bg-[#fdfbf7] p-2.5 pb-3 rounded-sm shadow-[0_12px_28px_rgba(0,0,0,0.65)] text-slate-900 relative transition-transform duration-200 border border-black/10 select-none w-[240px]"
+              className="bg-[#fdfbf7] p-2.5 pb-3 rounded-sm shadow-[0_12px_28px_rgba(0,0,0,0.65)] text-slate-900 relative transition-transform duration-200 border border-black/10 select-none w-[220px]"
             >
               {/* Textured Washi Tape Strip */}
               <div
@@ -838,7 +878,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
           {/* ========================================================================= */}
           <div
             ref={scrollContainerRef}
-            className="md:col-span-7 flex-1 overflow-y-auto p-4 sm:p-6 pb-28 md:pb-6 flex flex-col gap-6"
+            className="md:col-span-7 flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 pb-6 md:pb-6 flex flex-col gap-6 bg-[#0c0e17]"
           >
             {/* 1. Photo Source Selector (Tabbed / Segmented Control) */}
             <div>
@@ -1358,7 +1398,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
               </div>
 
               {/* Swatches Grid with real patterns, 48px touch target and active scaling */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 {WASHI_TAPE_OPTIONS.map((w) => {
                   const isSelected = selectedWashi === w.color;
                   return (
@@ -1368,10 +1408,10 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                       disabled={isDeveloping}
                       onClick={() => handleSelectWashi(w)}
                       onMouseEnter={() => playHoverSound(0.01, 620)}
-                      className={`min-h-[50px] px-3 py-2 rounded-xl border flex items-center gap-3 cursor-pointer active:scale-[0.96] transition-all duration-150 text-left ${
+                      className={`min-h-[50px] px-3 py-2 rounded-xl border flex items-center gap-2.5 cursor-pointer active:scale-[0.96] transition-all duration-150 text-left touch-manipulation ${
                         isSelected
-                          ? 'bg-slate-800/90 border-amber-400 shadow-md ring-2 ring-amber-400/40'
-                          : 'bg-slate-950/90 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                          ? 'bg-slate-800 border-amber-400 shadow-md ring-2 ring-amber-400/40'
+                          : 'bg-slate-900 border-slate-700 hover:border-slate-600 hover:bg-slate-850'
                       }`}
                     >
                       {/* Real Textured / Patterned Tape Swatch */}
@@ -1391,8 +1431,8 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                         )}
                       </div>
 
-                      <div className="truncate">
-                        <div className="text-xs font-mono font-bold text-slate-200 truncate">
+                      <div className="min-w-0 flex-1 truncate">
+                        <div className="text-xs font-mono font-bold text-slate-100 truncate">
                           {w.name}
                         </div>
                         <div className="text-[10px] font-mono text-slate-400 truncate">
@@ -1428,7 +1468,6 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                   </label>
                   <input
                     type="text"
-                    required
                     maxLength={32}
                     disabled={isDeveloping}
                     value={customTitle}
@@ -1467,7 +1506,6 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                   <span>Handwritten Caption / Cozy Thought</span>
                 </label>
                 <textarea
-                  required
                   maxLength={140}
                   rows={2}
                   disabled={isDeveloping}
@@ -1672,16 +1710,16 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSkipDeveloping}
-                  className="min-h-[48px] h-12 w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-xs rounded-xl border border-amber-400/50 flex items-center justify-center gap-1.5 transition active:scale-[0.96] cursor-pointer"
+                  className="min-h-[48px] h-12 w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-mono text-xs rounded-xl border border-amber-400/50 flex items-center justify-center gap-1.5 transition active:scale-[0.96] cursor-pointer touch-manipulation"
                 >
                   <FastForward className="w-4 h-4" />
                   <span>Developing... (Tap to Skip 2.5s)</span>
                 </button>
               ) : (
                 <button
-                  type="submit"
-                  form="polaroid-customizer-form"
-                  className="min-h-[48px] h-12 w-full py-2.5 px-4 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 hover:brightness-110 text-slate-950 font-display font-bold text-sm rounded-xl transition active:scale-[0.96] shadow-xl flex items-center justify-center gap-2 cursor-pointer border border-amber-200"
+                  type="button"
+                  onClick={handleDirectSubmit}
+                  className="min-h-[48px] h-12 w-full py-2.5 px-4 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 hover:brightness-110 active:scale-[0.96] text-slate-950 font-display font-bold text-sm rounded-xl transition shadow-xl flex items-center justify-center gap-2 cursor-pointer border border-amber-200 touch-manipulation"
                 >
                   <Camera className="w-4 h-4 fill-slate-950" />
                   <span>Pin Polaroid to Board 📸</span>
@@ -1692,23 +1730,23 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
         </div>
 
         {/* ========================================================================= */}
-        {/* MOBILE FIXED FLOATING BOTTOM BAR (Thumb-Zone CTA, >= 48px height)         */}
+        {/* MOBILE BOTTOM BAR (Thumb-Zone CTA, >= 48px height)                       */}
         {/* ========================================================================= */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 z-30 shadow-[0_-8px_20px_rgba(0,0,0,0.6)]">
+        <div className="md:hidden shrink-0 p-3 bg-slate-950 border-t border-slate-800 z-30 shadow-[0_-8px_20px_rgba(0,0,0,0.6)]">
           {isDeveloping ? (
             <button
               type="button"
               onClick={handleSkipDeveloping}
-              className="min-h-[48px] h-12 w-full bg-amber-500/20 active:scale-[0.96] text-amber-300 font-mono text-xs rounded-xl border border-amber-400/60 flex items-center justify-center gap-2 transition cursor-pointer"
+              className="min-h-[48px] h-12 w-full bg-amber-500/20 active:scale-[0.96] text-amber-300 font-mono text-xs rounded-xl border border-amber-400/60 flex items-center justify-center gap-2 transition cursor-pointer touch-manipulation"
             >
               <FastForward className="w-4 h-4" />
               <span>Developing instant film... {developProgress}% (Skip)</span>
             </button>
           ) : (
             <button
-              type="submit"
-              form="polaroid-customizer-form"
-              className="min-h-[48px] h-12 w-full bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 active:scale-[0.96] text-slate-950 font-display font-bold text-sm rounded-xl shadow-xl flex items-center justify-center gap-2 transition cursor-pointer border border-amber-200"
+              type="button"
+              onClick={handleDirectSubmit}
+              className="min-h-[48px] h-12 w-full bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300 active:scale-[0.96] text-slate-950 font-display font-bold text-sm rounded-xl shadow-xl flex items-center justify-center gap-2 transition cursor-pointer border border-amber-200 touch-manipulation"
             >
               <Camera className="w-4 h-4 fill-slate-950" />
               <span>Pin Polaroid to Board 📸</span>
@@ -1722,6 +1760,10 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
+        onPostAsGuest={() => {
+          setIsAuthModalOpen(false);
+          triggerDevelopingAndSubmit();
+        }}
         pendingItem={{
           type: 'polaroid',
           title: customTitle.trim() || selectedPreset.title,

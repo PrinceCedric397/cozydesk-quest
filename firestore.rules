@@ -24,11 +24,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.uid == '2icFABjzKnVc0hKXr0dUhsguxiE2' ||
+        (request.auth.token.email is string && request.auth.token.email.lower() == 'cedriczapata30@gmail.com')
+      );
+    }
+
     // Entity Validation: User Profile
     function isValidUser(data) {
       return data.userId is string && data.userId == request.auth.uid
-        && data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128
-        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512))
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048))
         && (!('email' in data) || (data.email is string && data.email.size() <= 256))
         && (!('xp' in data) || (data.xp is number))
         && (!('quests' in data) || (data.quests is list && data.quests.size() <= 50))
@@ -41,7 +48,11 @@ service cloud.firestore {
 
     // Entity Validation: Corkboard Note
     function isValidCorkboardNote(data) {
-      return data.authorId is string && data.authorId == request.auth.uid
+      return data.authorId is string && data.authorId.size() > 0 && data.authorId.size() <= 128
+        && (
+          (isSignedIn() && data.authorId == request.auth.uid) ||
+          (!isSignedIn() && data.authorId.matches('^guest_[a-zA-Z0-9_\\-]+$'))
+        )
         && data.name is string && data.name.size() > 0 && data.name.size() <= 64
         && data.message is string && data.message.size() <= 1000
         && data.color is string && data.color.size() <= 32
@@ -54,6 +65,8 @@ service cloud.firestore {
         && (!('polaroidGradient' in data) || (data.polaroidGradient is string && data.polaroidGradient.size() <= 128))
         && (!('polaroidDate' in data) || (data.polaroidDate is string && data.polaroidDate.size() <= 64))
         && (!('washiTapeColor' in data) || (data.washiTapeColor is string && data.washiTapeColor.size() <= 64))
+        && (!('polaroidImageUrl' in data) || (data.polaroidImageUrl is string && data.polaroidImageUrl.size() <= 500000))
+        && (!('polaroidFilter' in data) || (data.polaroidFilter is string && data.polaroidFilter.size() <= 64))
         && (!('category' in data) || (data.category is string && data.category.size() <= 32))
         && (!('x' in data) || (data.x is number))
         && (!('y' in data) || (data.y is number))
@@ -62,50 +75,53 @@ service cloud.firestore {
 
     // User Desk State & Preferences
     match /users/{userId} {
-      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow list: if false;
 
       allow create: if isSignedIn()
         && request.auth.uid == userId
         && isValidId(userId)
         && isValidUser(incoming())
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && (!('createdAt' in incoming()) || incoming().createdAt == request.time)
+        && (!('updatedAt' in incoming()) || incoming().updatedAt == request.time);
 
       allow update: if isSignedIn()
-        && request.auth.uid == userId
+        && (request.auth.uid == userId || isAdmin())
         && isValidId(userId)
         && isValidUser(incoming())
-        && incoming().userId == existing().userId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time;
+        && (!('userId' in existing()) || incoming().userId == existing().userId)
+        && (!('createdAt' in existing()) || !('createdAt' in incoming()) || incoming().createdAt == existing().createdAt)
+        && (!('updatedAt' in incoming()) || incoming().updatedAt == request.time);
 
-      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin()) && isValidId(userId);
     }
 
     // Community Bulletin Corkboard Notes
     match /corkboard_notes/{noteId} {
       allow get, list: if true;
 
-      allow create: if isSignedIn()
-        && isValidId(noteId)
+      allow create: if isValidId(noteId)
         && isValidCorkboardNote(incoming())
-        && incoming().createdAt == request.time;
+        && (!('createdAt' in incoming()) || incoming().createdAt == request.time);
 
       allow update: if isValidId(noteId)
         && (
+          isAdmin()
+          ||
           // Action 1: Author modifies note details or board position
           (
-            isSignedIn()
-            && existing().authorId == request.auth.uid
+            (
+              (isSignedIn() && existing().authorId == request.auth.uid) ||
+              (!isSignedIn() && 'authorId' in existing() && existing().authorId.matches('^guest_[a-zA-Z0-9_\\-]+$'))
+            )
             && isValidCorkboardNote(incoming())
             && incoming().authorId == existing().authorId
-            && incoming().createdAt == existing().createdAt
+            && (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt)
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'name', 'message', 'color', 'fontClass', 'emoji',
               'category', 'x', 'y', 'rotation', 'isPolaroid',
               'polaroidTitle', 'polaroidPhoto', 'polaroidGradient',
-              'polaroidDate', 'washiTapeColor'
+              'polaroidDate', 'washiTapeColor', 'polaroidImageUrl', 'polaroidFilter'
             ])
           )
           ||
@@ -116,9 +132,8 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isSignedIn()
-        && isValidId(noteId)
-        && existing().authorId == request.auth.uid;
+      allow delete: if isAdmin()
+        || (isSignedIn() && (('authorId' in existing()) && existing().authorId == request.auth.uid));
     }
 
     // Health check / connection test collection

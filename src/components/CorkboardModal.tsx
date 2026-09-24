@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { ArrowLeft, X, Pin, Sparkles, Heart, Coffee, Star, Flame, Search, Maximize2, ArrowUpDown, Camera, ZoomIn, ZoomOut, Cloud } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ArrowLeft, X, Pin, Sparkles, Heart, Coffee, Star, Flame, Search, Maximize2, ArrowUpDown, Camera, ZoomIn, ZoomOut, Cloud, Trash2 } from 'lucide-react';
 import { CorkboardNote } from '../types';
 import { playChime, playWinFanfare, playPinTackSound, playStampSound, playMechanicalClick, playPaperRustleSound } from '../utils/audio';
 import { AddPolaroidModal } from './AddPolaroidModal';
@@ -14,6 +14,7 @@ interface CorkboardModalProps {
   notes: CorkboardNote[];
   onAddNote: (note: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'>) => void;
   onReactNote: (noteId: string, type: 'heart' | 'coffee' | 'star' | 'fire') => void;
+  onDeleteNote?: (noteId: string) => void;
   onOpenExpandedStudio?: () => void;
 }
 
@@ -35,9 +36,14 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   notes,
   onAddNote,
   onReactNote,
+  onDeleteNote,
   onOpenExpandedStudio,
 }) => {
   const { user, signInWithGoogle } = useFirebase();
+  const isAdmin = Boolean(
+    user?.uid === '2icFABjzKnVc0hKXr0dUhsguxiE2' ||
+    (user?.email && user.email.toLowerCase() === 'cedriczapata30@gmail.com')
+  );
   const [authorName, setAuthorName] = useState('Anonymous');
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [message, setMessage] = useState('');
@@ -45,14 +51,17 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   const [fontClass, setFontClass] = useState('font-hand');
   const [emoji, setEmoji] = useState('☕');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterTab, setFilterTab] = useState<'all' | 'mine' | 'polaroid' | 'memo'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'reactions'>('newest');
   const [isPolaroidModalOpen, setIsPolaroidModalOpen] = useState(false);
   const [cardZoom, setCardZoom] = useState<number>(1.0);
+  const [noteToDelete, setNoteToDelete] = useState<CorkboardNote | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [pendingNoteToPost, setPendingNoteToPost] = useState<Omit<
     CorkboardNote,
     'id' | 'createdAt' | 'reactions'
   > | null>(null);
+  const isSubmittingRef = useRef(false);
 
   // Auto-fill author name from Firebase Auth only when authenticated with a real display name
   useEffect(() => {
@@ -113,6 +122,16 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   const filteredAndSortedNotes = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     const list = notes.filter((n) => {
+      // Tab filter
+      if (filterTab === 'mine') {
+        const isMine = user?.uid && n.authorId === user.uid;
+        if (!isMine) return false;
+      } else if (filterTab === 'polaroid') {
+        if (!n.isPolaroid) return false;
+      } else if (filterTab === 'memo') {
+        if (n.isPolaroid) return false;
+      }
+
       if (!q) return true;
       const titleMatch = n.polaroidTitle ? n.polaroidTitle.toLowerCase().includes(q) : false;
       return (
@@ -151,7 +170,7 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || isSubmittingRef.current) return;
 
     const finalAuthor = isAnonymous
       ? 'Anonymous'
@@ -173,6 +192,9 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
+    setTimeout(() => { isSubmittingRef.current = false; }, 800);
+
     onAddNote(notePayload);
     setMessage('');
     playPinTackSound(0.12);
@@ -182,7 +204,10 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
 
   const handleAuthSuccess = (signedInUser: FirebaseUser) => {
     setIsAuthModalOpen(false);
-    if (pendingNoteToPost) {
+    if (pendingNoteToPost && !isSubmittingRef.current) {
+      isSubmittingRef.current = true;
+      setTimeout(() => { isSubmittingRef.current = false; }, 800);
+
       const authorToUse = isAnonymous
         ? 'Anonymous'
         : pendingNoteToPost.name !== 'Anonymous'
@@ -570,6 +595,76 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
           </div>
         </div>
 
+        {/* Category Tabs: All, Mine, Polaroids, Memos */}
+        <div className="bg-slate-950/70 px-4 py-2 border-b border-slate-800/80 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setFilterTab('all');
+                playMechanicalClick('subtle', 0.04);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer ${
+                filterTab === 'all'
+                  ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+              }`}
+            >
+              All Community ({notes.length})
+            </button>
+            {user && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterTab('mine');
+                  playMechanicalClick('subtle', 0.04);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer ${
+                  filterTab === 'mine'
+                    ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                }`}
+              >
+                My Notes ({notes.filter((n) => n.authorId === user.uid).length})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setFilterTab('polaroid');
+                playMechanicalClick('subtle', 0.04);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer flex items-center gap-1 ${
+                filterTab === 'polaroid'
+                  ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+              }`}
+            >
+              <span>📷 Polaroids</span>
+              <span className="opacity-80">({notes.filter((n) => n.isPolaroid).length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterTab('memo');
+                playMechanicalClick('subtle', 0.04);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer flex items-center gap-1 ${
+                filterTab === 'memo'
+                  ? 'bg-amber-400 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+              }`}
+            >
+              <span>📌 Memos</span>
+              <span className="opacity-80">({notes.filter((n) => !n.isPolaroid).length})</span>
+            </button>
+          </div>
+
+          <span className="text-[10px] font-mono text-slate-400 shrink-0">
+            {filteredAndSortedNotes.length} pinned item{filteredAndSortedNotes.length !== 1 ? 's' : ''} shown
+          </span>
+        </div>
+
         {/* Corkboard Surface Wall */}
         <div className="flex-1 cork-texture p-4 sm:p-6 overflow-y-auto min-h-[320px]">
           {filteredAndSortedNotes.length === 0 ? (
@@ -591,6 +686,10 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
               }`}
             >
               {filteredAndSortedNotes.map((note, idx) => {
+                const isAuthor = Boolean(user?.uid && note.authorId === user.uid);
+                const isLocal = !note.authorId || note.id.startsWith('local_') || note.id.startsWith('note-') || note.id.startsWith('pol-');
+                const canDelete = Boolean(onDeleteNote && (isAdmin || isAuthor || isLocal));
+
                 // If it's a Polaroid with washi tape
                 if (note.isPolaroid) {
                   return (
@@ -725,9 +824,25 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                           </button>
                         </div>
 
-                        <span className="text-[9px] font-mono text-amber-800/80 font-bold flex items-center gap-0.5">
-                          📷 Polaroid
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-mono text-amber-800/80 font-bold flex items-center gap-0.5">
+                            📷 Polaroid
+                          </span>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setNoteToDelete(note);
+                              }}
+                              className="p-1 rounded bg-black/5 hover:bg-red-500/20 text-slate-500 hover:text-red-600 transition cursor-pointer active:scale-90"
+                              title={isAdmin ? "Delete Polaroid (Admin)" : "Delete Polaroid"}
+                              aria-label="Delete Polaroid"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -760,12 +875,28 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                           )}
                         </span>
                       </div>
-                      <span className="text-[10px] font-mono text-black/50">
-                        {new Date(note.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono text-black/50">
+                          {new Date(note.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNoteToDelete(note);
+                            }}
+                            className="p-1 rounded bg-black/5 hover:bg-red-500/20 text-slate-600 hover:text-red-700 transition cursor-pointer active:scale-90"
+                            title={isAdmin ? "Delete Memo (Admin)" : "Delete Memo"}
+                            aria-label="Delete Memo"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Message Content */}
@@ -847,8 +978,23 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
       {/* Guest User Sign-In Before Firestore Write */}
       <SignInToPostModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setPendingNoteToPost(null);
+        }}
         onSuccess={handleAuthSuccess}
+        onPostAsGuest={() => {
+          if (pendingNoteToPost && !isSubmittingRef.current) {
+            isSubmittingRef.current = true;
+            setTimeout(() => { isSubmittingRef.current = false; }, 800);
+            onAddNote(pendingNoteToPost);
+            setPendingNoteToPost(null);
+            setMessage('');
+            playPinTackSound(0.12);
+            setTimeout(() => playPaperRustleSound('flutter', 0.08), 80);
+            setTimeout(() => playWinFanfare(), 180);
+          }
+        }}
         pendingItem={
           pendingNoteToPost
             ? {
@@ -862,6 +1008,59 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
             : null
         }
       />
+
+      {/* In-App Delete Confirmation Modal (Avoids window.confirm blocked by iframes) */}
+      {noteToDelete && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={() => setNoteToDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#fffdf9] border-2 border-stone-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-stone-900 animate-scale-up"
+          >
+            <div className="flex items-center gap-2.5 mb-3 text-red-600">
+              <div className="p-2 rounded-xl bg-red-100/80">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base font-sans">Delete from Corkboard?</h3>
+                <span className="text-[11px] font-mono text-stone-500">
+                  {isAdmin ? 'Admin deletion privileges active' : 'Author action'}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-stone-700 mb-5 font-mono leading-relaxed bg-amber-50/60 p-3 rounded-lg border border-amber-200/60">
+              Permanently remove {noteToDelete.isPolaroid ? 'polaroid' : 'memo'}{' '}
+              <strong className="text-stone-900">
+                "{noteToDelete.polaroidTitle || noteToDelete.name || noteToDelete.message?.slice(0, 25) || 'this note'}"
+              </strong>{' '}
+              from the live Community Corkboard?
+            </p>
+            <div className="flex items-center justify-end gap-2.5 font-sans">
+              <button
+                type="button"
+                onClick={() => setNoteToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-stone-300 text-xs font-bold hover:bg-stone-100 transition cursor-pointer text-stone-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = noteToDelete.id;
+                  setNoteToDelete(null);
+                  onDeleteNote?.(id);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 text-white text-xs font-bold shadow-md hover:shadow-red-600/30 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
