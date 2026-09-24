@@ -18,6 +18,8 @@ import { WelcomeModal } from './components/onboarding/WelcomeModal';
 import { SpotlightTour } from './components/onboarding/SpotlightTour';
 import { FirstStepsCard, StarterStepsState } from './components/onboarding/FirstStepsCard';
 import { LoadingSplashScreen } from './components/LoadingSplashScreen';
+import { SignInToPostModal } from './components/SignInToPostModal';
+import { User as FirebaseUser } from 'firebase/auth';
 import confetti from 'canvas-confetti';
 import {
   SkyMode,
@@ -215,6 +217,8 @@ export default function App() {
   // Firebase Context
   const {
     user,
+    authError,
+    clearAuthError,
     cloudCorkNotes,
     isCorkNotesLoadedFromCloud,
     addCorkNoteCloud,
@@ -238,6 +242,8 @@ export default function App() {
   const [isQuestsOpen, setIsQuestsOpen] = useState(false);
   const [isCorkboardOpen, setIsCorkboardOpen] = useState(false);
   const [isExpandedStudioOpen, setIsExpandedStudioOpen] = useState(false);
+  const [isDeskPinAuthOpen, setIsDeskPinAuthOpen] = useState(false);
+  const [pendingDeskPinNote, setPendingDeskPinNote] = useState<StickyNoteData | null>(null);
 
   // Onboarding & Spotlight Tour State
   const [showSplash, setShowSplash] = useState<boolean>(true);
@@ -508,15 +514,25 @@ export default function App() {
         if (cloudProfile.positions) setPositions(cloudProfile.positions);
         if (cloudProfile.skyMode) setSkyMode(cloudProfile.skyMode);
         if (cloudProfile.lampLighting) setLampLighting(cloudProfile.lampLighting);
-        setToastMessage(`Welcome, ${user.displayName || 'Cozy Explorer'}! Desk synced from Cloud ☁️`);
+        if (!user.isAnonymous) {
+          setToastMessage(`Welcome back, ${user.displayName || 'Cozy Explorer'}! Desk synced from Cloud ☁️`);
+        }
       })
       .catch((err) => {
-        console.error('Error loading cloud profile:', err);
+        console.warn('Notice loading cloud profile:', err);
       });
     return () => {
       active = false;
     };
   }, [user, loadUserProfileCloud]);
+
+  // Toast for auth notices
+  useEffect(() => {
+    if (authError) {
+      showToast(`⚠️ ${authError}`);
+      clearAuthError();
+    }
+  }, [authError, clearAuthError]);
 
   // Sync state to Firebase Cloud when user is logged in
   useEffect(() => {
@@ -529,7 +545,9 @@ export default function App() {
       positions,
       skyMode,
       lampLighting,
-    }).catch(console.error);
+    }).catch((err) => {
+      console.warn('Notice saving cloud profile:', err);
+    });
   }, [user, currentXp, quests, starterSteps, stickyNotes, positions, skyMode, lampLighting, saveUserProfileCloud]);
 
   // Synchronize retro incandescent lightbulb flicker with ambient room glow
@@ -1085,8 +1103,15 @@ export default function App() {
   };
 
   const handlePinToCorkboard = async (note: StickyNoteData) => {
+    // Detect that there is no authenticated Firebase user BEFORE attempting Firestore write
+    if (!user) {
+      setPendingDeskPinNote(note);
+      setIsDeskPinAuthOpen(true);
+      return;
+    }
+
     const noteData = {
-      name: note.title || 'Desk Memo',
+      name: note.title || user.displayName || 'Desk Memo',
       message: note.content,
       color: note.color,
       fontClass: note.fontClass,
@@ -1094,7 +1119,30 @@ export default function App() {
       category: 'memo' as const,
     };
 
-    if (user) {
+    try {
+      await addCorkNoteCloud(noteData);
+      completeQuest('pin_corkboard');
+      updateStarterStep('expanded_board_note');
+      setIsCorkboardOpen(true);
+      playPinTackSound(0.09);
+      showToast('Desk note pinned to Community Corkboard (Live in Cloud)! 📌☁️');
+    } catch (err) {
+      console.warn('Notice adding note to cloud:', err);
+    }
+  };
+
+  const handleDeskPinAuthSuccess = async (signedInUser: FirebaseUser) => {
+    setIsDeskPinAuthOpen(false);
+    if (pendingDeskPinNote) {
+      const noteData = {
+        name: pendingDeskPinNote.title || signedInUser.displayName || 'Desk Memo',
+        message: pendingDeskPinNote.content,
+        color: pendingDeskPinNote.color,
+        fontClass: pendingDeskPinNote.fontClass,
+        emoji: '📌',
+        category: 'memo' as const,
+      };
+
       try {
         await addCorkNoteCloud(noteData);
         completeQuest('pin_corkboard');
@@ -1102,25 +1150,12 @@ export default function App() {
         setIsCorkboardOpen(true);
         playPinTackSound(0.09);
         showToast('Desk note pinned to Community Corkboard (Live in Cloud)! 📌☁️');
-        return;
       } catch (err) {
-        console.error('Failed to add note to cloud:', err);
+        console.warn('Notice adding note to cloud after sign in:', err);
       }
+
+      setPendingDeskPinNote(null);
     }
-
-    const corkNote: CorkboardNote = {
-      id: `cork-${Date.now()}`,
-      ...noteData,
-      createdAt: Date.now(),
-      reactions: { heart: 1, coffee: 0, star: 1, fire: 0 },
-    };
-
-    setCorkNotes((prev) => [corkNote, ...prev]);
-    completeQuest('pin_corkboard');
-    updateStarterStep('expanded_board_note');
-    setIsCorkboardOpen(true);
-    playPinTackSound(0.09);
-    showToast('Desk note pinned to Bulletin Corkboard! 📌');
   };
 
   // Corkboard Note Adding
@@ -1132,27 +1167,10 @@ export default function App() {
         updateStarterStep('expanded_board_note');
         playPinTackSound(0.09);
         showToast('Pinned to Community Corkboard (Live in Cloud)! 📌☁️');
-        return;
       } catch (err) {
-        console.error('Failed to add note to cloud:', err);
+        console.warn('Notice adding note to cloud, saving locally:', err);
       }
     }
-
-    const newNote: CorkboardNote = {
-      id: `cork-${Date.now()}`,
-      ...data,
-      createdAt: Date.now(),
-      reactions: { heart: 1, coffee: 0, star: 0, fire: 0 },
-    };
-    setCorkNotes((prev) => [newNote, ...prev]);
-    completeQuest('pin_corkboard');
-    updateStarterStep('expanded_board_note');
-    playPinTackSound(0.09);
-    showToast(
-      user
-        ? 'Your note was pinned to the bulletin board! 📌'
-        : 'Note pinned locally! Sign in with Google to share on Community Board ☁️'
-    );
   };
 
   const handleReactCorkNote = (
@@ -1163,7 +1181,7 @@ export default function App() {
     const isCloudNote = cloudCorkNotes.some((n) => n.id === noteId);
     if (isCloudNote) {
       reactCorkNoteCloud(noteId, type).catch((err) => {
-        console.error('Failed to react in cloud:', err);
+        console.warn('Notice reacting in cloud:', err);
       });
     }
 
@@ -1184,10 +1202,10 @@ export default function App() {
   };
 
   const handleUpdateCorkNotePosition = (id: string, x: number, y: number) => {
-    const isCloudNote = cloudCorkNotes.some((n) => n.id === id);
-    if (isCloudNote) {
+    const cloudNote = cloudCorkNotes.find((n) => n.id === id);
+    if (cloudNote && user && cloudNote.authorId === user.uid) {
       updateCorkNotePositionCloud(id, x, y).catch((err) => {
-        console.error('Failed to update position in cloud:', err);
+        console.warn('Notice updating position in cloud:', err);
       });
     }
 
@@ -1797,6 +1815,25 @@ export default function App() {
       {showSplash && (
         <LoadingSplashScreen onEnterWorkspace={handleEnterWorkspace} />
       )}
+
+      {/* Guest Desk Sticky Pinning Authentication Prompt */}
+      <SignInToPostModal
+        isOpen={isDeskPinAuthOpen}
+        onClose={() => setIsDeskPinAuthOpen(false)}
+        onSuccess={handleDeskPinAuthSuccess}
+        pendingItem={
+          pendingDeskPinNote
+            ? {
+                type: 'note',
+                name: pendingDeskPinNote.title || 'Desk Memo',
+                message: pendingDeskPinNote.content,
+                color: pendingDeskPinNote.color,
+                fontClass: pendingDeskPinNote.fontClass,
+                emoji: '📌',
+              }
+            : null
+        }
+      />
     </div>
   );
 }

@@ -20,10 +20,14 @@ import {
   CheckCircle2,
   Camera,
   Layers,
+  Cloud,
 } from 'lucide-react';
 import { CorkboardNote } from '../types';
 import { AddPolaroidModal } from './AddPolaroidModal';
 import { getWashiTapeOption, FILM_GRAIN_SVG_DATA } from '../data/curatedPolaroids';
+import { useFirebase } from '../firebase/FirebaseContext';
+import { SignInToPostModal } from './SignInToPostModal';
+import { User as FirebaseUser } from 'firebase/auth';
 import {
   playPinTackSound,
   playStampSound,
@@ -141,6 +145,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   onReactNote,
   onUpdateNotePosition,
 }) => {
+  const { user, signInWithGoogle } = useFirebase();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Pan & Zoom State
@@ -175,6 +180,11 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
   // Add Note Modal State inside Studio
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isAddPolaroidModalOpen, setIsAddPolaroidModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [pendingStudioNote, setPendingStudioNote] = useState<Omit<
+    CorkboardNote,
+    'id' | 'createdAt' | 'reactions'
+  > | null>(null);
   const [modalAuthor, setModalAuthor] = useState('Anonymous');
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [modalMessage, setModalMessage] = useState('');
@@ -683,7 +693,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       y: Math.round(-pan.y / scale + (containerRef.current ? containerRef.current.clientHeight / 2 / scale : 800)),
     };
 
-    onAddNote({
+    const notePayload: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'> = {
       name: finalAuthor,
       message: modalMessage.trim(),
       color: modalColor,
@@ -691,13 +701,49 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
       emoji: modalEmoji,
       x: targetCoords.x,
       y: targetCoords.y,
-    });
+    };
+
+    // Detect that there is no authenticated Firebase user before attempting write
+    if (!user) {
+      setPendingStudioNote(notePayload);
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    onAddNote(notePayload);
 
     setModalMessage('');
     setIsAddModalOpen(false);
     setPendingPinCoords(null);
     playPinTackSound(0.12);
     setTimeout(() => playWinFanfare(), 150);
+  };
+
+  const handleAuthSuccess = (signedInUser: FirebaseUser) => {
+    setIsAuthModalOpen(false);
+    if (pendingStudioNote) {
+      const authorToUse = isAnonymous
+        ? 'Anonymous'
+        : pendingStudioNote.name !== 'Anonymous'
+        ? pendingStudioNote.name
+        : signedInUser.displayName || 'Cozy Explorer';
+
+      onAddNote({
+        ...pendingStudioNote,
+        name: authorToUse,
+      });
+
+      if (!modalAuthor && signedInUser.displayName) {
+        setModalAuthor(signedInUser.displayName);
+      }
+
+      setPendingStudioNote(null);
+      setModalMessage('');
+      setIsAddModalOpen(false);
+      setPendingPinCoords(null);
+      playPinTackSound(0.12);
+      setTimeout(() => playWinFanfare(), 150);
+    }
   };
 
   // Minimap Navigation: Click on minimap to jump
@@ -918,6 +964,51 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                 <span>Center</span>
               </button>
             </div>
+
+            {/* Cloud Auth Status Pill */}
+            {user?.isAnonymous ? (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-950/40 border border-amber-500/40 text-[11px] font-mono text-amber-300">
+                <span className="flex items-center gap-1">
+                  <span>👤</span>
+                  <span>Guest</span>
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await signInWithGoogle();
+                    } catch {
+                      // Handled in context
+                    }
+                  }}
+                  className="ml-1 text-[10px] text-sky-300 hover:text-sky-200 underline font-bold cursor-pointer"
+                  title="Sign in with Google to link your account & notes"
+                >
+                  Sign In
+                </button>
+              </div>
+            ) : user ? (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 text-[11px] font-mono text-emerald-300">
+                <Cloud className="w-3 h-3 text-emerald-400" />
+                <span className="max-w-[80px] truncate">{user.displayName?.split(' ')[0] || 'Synced'}</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await signInWithGoogle();
+                  } catch {
+                    // Handled in context
+                  }
+                }}
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-sky-950/40 hover:bg-sky-900/50 border border-sky-500/40 text-[11px] font-mono text-sky-300 cursor-pointer transition active:scale-95"
+                title="Sign in with Google to publish to the community bulletin"
+              >
+                <span>Sign In ☁️</span>
+              </button>
+            )}
 
             {/* Desktop Close Button */}
             <button
@@ -1223,7 +1314,7 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
                         />
                         {note.polaroidFilter === 'cozy-grain' && (
                           <div
-                            style={{ backgroundImage: FILM_GRAIN_SVG_DATA }}
+                            style={{ backgroundImage: `url("${FILM_GRAIN_SVG_DATA}")` }}
                             className="absolute inset-0 pointer-events-none mix-blend-overlay opacity-30"
                           />
                         )}
@@ -1568,6 +1659,58 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
             </div>
 
             <form onSubmit={handleModalSubmit} className="flex flex-col gap-3">
+              {/* Cloud Status Banner */}
+              <div className="flex items-center justify-between text-[11px] font-mono px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800">
+                {user?.isAnonymous ? (
+                  <div className="flex items-center justify-between w-full flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 text-amber-300">
+                      <Cloud className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        Live Cloud Bulletin • <span className="text-amber-400 font-bold bg-amber-400/20 px-1.5 py-0.5 rounded text-[10px] border border-amber-400/30">Guest Session</span>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await signInWithGoogle();
+                        } catch {
+                          // Handled in context
+                        }
+                      }}
+                      className="text-sky-300 hover:text-sky-200 bg-sky-950/50 hover:bg-sky-900/60 px-2 py-0.5 rounded border border-sky-400/40 flex items-center gap-1.5 cursor-pointer transition text-[10px] active:scale-95"
+                      title="Link Google account to preserve your notes"
+                    >
+                      <span>Sign in with Google to Link Account</span>
+                    </button>
+                  </div>
+                ) : user ? (
+                  <div className="flex items-center gap-1.5 text-emerald-400">
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>
+                      Live Cloud Bulletin • <strong className="text-white">{user.displayName || user.email}</strong>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-slate-400">Local Desk Mode</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await signInWithGoogle();
+                        } catch {
+                          // Handled in context
+                        }
+                      }}
+                      className="text-sky-400 hover:text-sky-300 underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Sign in with Google to post live ☁️</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -1760,6 +1903,25 @@ export const ExpandedCorkboardStudio: React.FC<ExpandedCorkboardStudioProps> = (
         onClose={() => setIsAddPolaroidModalOpen(false)}
         onAddPolaroid={onAddNote}
         defaultCoordinates={pendingPinCoords}
+      />
+
+      {/* Guest User Authentication Prompt */}
+      <SignInToPostModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+        pendingItem={
+          pendingStudioNote
+            ? {
+                type: 'note',
+                name: pendingStudioNote.name,
+                message: pendingStudioNote.message,
+                color: pendingStudioNote.color,
+                fontClass: pendingStudioNote.fontClass,
+                emoji: pendingStudioNote.emoji,
+              }
+            : null
+        }
       />
     </div>
   );

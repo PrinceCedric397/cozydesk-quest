@@ -34,6 +34,9 @@ import {
   FILM_GRAIN_SVG_DATA,
 } from '../data/curatedPolaroids';
 import { CorkboardNote } from '../types';
+import { useFirebase } from '../firebase/FirebaseContext';
+import { SignInToPostModal } from './SignInToPostModal';
+import { User as FirebaseUser } from 'firebase/auth';
 import {
   playCameraShutterSound,
   playPinTackSound,
@@ -60,6 +63,10 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
 }) => {
   // Source Mode: Presets, Live Camera, or File Upload
   const [sourceMode, setSourceMode] = useState<PhotoSourceMode>('presets');
+
+  // Firebase user authentication
+  const { user } = useFirebase();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   // Curated Preset Selection
   const [selectedPreset, setSelectedPreset] = useState<CuratedPolaroidPreset>(
@@ -89,6 +96,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   const [photoPan, setPhotoPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [isPanningImage, setIsPanningImage] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const panStartRef = useRef<{ startX: number; startY: number; origX: number; origY: number }>({
     startX: 0,
     startY: 0,
@@ -285,15 +293,18 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   // File Upload Handling
   const processUploadedFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file (JPEG, PNG, WebP, etc.)');
+      setUploadError('Please select a valid image file (JPEG, PNG, WebP).');
+      setTimeout(() => setUploadError(null), 4000);
       return;
     }
+    setUploadError(null);
 
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
       if (result) {
         setUploadedImageUrl(result);
+        setSourceMode('upload');
         setPhotoZoom(1);
         setPhotoPan({ x: 0, y: 0 });
         playPaperRustleSound('drop', 0.08);
@@ -420,69 +431,79 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
 
     return new Promise((resolve) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (!sourceDataUrl.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const outputSize = 640;
-        canvas.width = outputSize;
-        canvas.height = outputSize;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(sourceDataUrl);
-          return;
-        }
+        try {
+          const canvas = document.createElement('canvas');
+          const outputSize = 480;
+          canvas.width = outputSize;
+          canvas.height = outputSize;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(sourceDataUrl);
+            return;
+          }
 
-        // Fill background
-        ctx.fillStyle = '#111827';
-        ctx.fillRect(0, 0, outputSize, outputSize);
+          // Fill background
+          ctx.fillStyle = '#111827';
+          ctx.fillRect(0, 0, outputSize, outputSize);
 
-        // Center square crop
-        const sw = img.naturalWidth;
-        const sh = img.naturalHeight;
-        const minDim = Math.min(sw, sh);
-        const sx = (sw - minDim) / 2;
-        const sy = (sh - minDim) / 2;
+          // Center square crop
+          const sw = img.naturalWidth || img.width;
+          const sh = img.naturalHeight || img.height;
+          const minDim = Math.min(sw, sh);
+          const sx = (sw - minDim) / 2;
+          const sy = (sh - minDim) / 2;
 
-        ctx.save();
-        // Apply filter preset
-        if (activeFilter.canvasFilter && activeFilter.canvasFilter !== 'none') {
-          ctx.filter = activeFilter.canvasFilter;
-        }
-
-        // Apply zoom and pan
-        ctx.translate(outputSize / 2, outputSize / 2);
-        ctx.scale(zoom, zoom);
-        ctx.translate(-outputSize / 2 + panX * (outputSize / 240), -outputSize / 2 + panY * (outputSize / 240));
-
-        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, outputSize, outputSize);
-        ctx.restore();
-
-        // If soft bloom filter, apply dreamy bloom pass
-        if (activeFilter.hasBloom) {
           ctx.save();
-          ctx.globalCompositeOperation = 'screen';
-          ctx.globalAlpha = 0.35;
-          ctx.filter = 'blur(12px) brightness(115%)';
-          ctx.drawImage(canvas, 0, 0);
+          // Apply filter preset
+          if (activeFilter.canvasFilter && activeFilter.canvasFilter !== 'none') {
+            ctx.filter = activeFilter.canvasFilter;
+          }
+
+          // Apply zoom and pan
+          ctx.translate(outputSize / 2, outputSize / 2);
+          ctx.scale(zoom, zoom);
+          ctx.translate(-outputSize / 2 + panX * (outputSize / 240), -outputSize / 2 + panY * (outputSize / 240));
+
+          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, outputSize, outputSize);
           ctx.restore();
-        }
 
-        // If cozy grain filter, draw fine analog noise
-        if (activeFilter.hasGrain) {
-          try {
-            const imgData = ctx.getImageData(0, 0, outputSize, outputSize);
-            const data = imgData.data;
-            for (let i = 0; i < data.length; i += 4) {
-              const noise = (Math.random() - 0.5) * 26;
-              data[i] = Math.min(255, Math.max(0, data[i] + noise));
-              data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-              data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
-            }
-            ctx.putImageData(imgData, 0, 0);
-          } catch {}
-        }
+          // If soft bloom filter, apply dreamy bloom pass
+          if (activeFilter.hasBloom) {
+            try {
+              ctx.save();
+              ctx.globalCompositeOperation = 'screen';
+              ctx.globalAlpha = 0.35;
+              ctx.filter = 'blur(10px) brightness(115%)';
+              ctx.drawImage(canvas, 0, 0);
+              ctx.restore();
+            } catch {}
+          }
 
-        resolve(canvas.toDataURL('image/jpeg', 0.88));
+          // If cozy grain filter, draw fine analog noise
+          if (activeFilter.hasGrain) {
+            try {
+              const imgData = ctx.getImageData(0, 0, outputSize, outputSize);
+              const data = imgData.data;
+              for (let i = 0; i < data.length; i += 4) {
+                const noise = (Math.random() - 0.5) * 22;
+                data[i] = Math.min(255, Math.max(0, data[i] + noise));
+                data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
+                data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
+              }
+              ctx.putImageData(imgData, 0, 0);
+            } catch {}
+          }
+
+          const result = canvas.toDataURL('image/jpeg', 0.82);
+          resolve(result);
+        } catch (err) {
+          console.warn('Canvas export fallback:', err);
+          resolve(sourceDataUrl);
+        }
       };
       img.onerror = () => resolve(sourceDataUrl);
       img.src = sourceDataUrl!;
@@ -490,7 +511,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
   };
 
   // Finalize Submission
-  const finalizeSubmission = async () => {
+  const finalizeSubmission = async (authorOverride?: string) => {
     playPinTackSound(0.12);
     playWinFanfare();
 
@@ -501,11 +522,12 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
 
     if (hasCustomPhoto) {
       const baked = await generateFinalPhotoData();
-      if (baked) finalImageUrl = baked;
+      finalImageUrl =
+        baked || (sourceMode === 'camera' ? capturedPhotoUrl || undefined : uploadedImageUrl || undefined);
     }
 
     onAddPolaroid({
-      name: photographer.trim() || 'Cozy Wanderer',
+      name: authorOverride?.trim() || photographer.trim() || 'Cozy Wanderer',
       message: customCaption.trim() || selectedPreset.desc,
       color: '#fdfbf7', // Classic warm polaroid photo paper
       fontClass: 'font-hand',
@@ -528,10 +550,7 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
     onClose();
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customCaption.trim() || !customTitle.trim() || isDeveloping) return;
-
+  const triggerDevelopingAndSubmit = (authorOverride?: string) => {
     // Trigger instant camera shutter and flash
     setShowShutterFlash(true);
     playCameraShutterSound(0.14);
@@ -555,11 +574,33 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
       if (progress < 1) {
         devProgressAnimRef.current = requestAnimationFrame(updateDeveloping);
       } else {
-        finalizeSubmission();
+        finalizeSubmission(authorOverride);
       }
     };
 
     devProgressAnimRef.current = requestAnimationFrame(updateDeveloping);
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customCaption.trim() || !customTitle.trim() || isDeveloping) return;
+
+    // Detect that there is no authenticated Firebase user before attempting write
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    triggerDevelopingAndSubmit();
+  };
+
+  const handleAuthSuccess = (signedInUser: FirebaseUser) => {
+    setIsAuthModalOpen(false);
+    const authorName = signedInUser.displayName || photographer;
+    if (!photographer || photographer === 'Cozy Wanderer') {
+      setPhotographer(authorName);
+    }
+    triggerDevelopingAndSubmit(authorName);
   };
 
   const handleSkipDeveloping = () => {
@@ -1068,6 +1109,19 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
                     onChange={handleFileInputChange}
                     className="hidden"
                   />
+
+                  {uploadError && (
+                    <div className="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-mono flex items-center justify-between animate-fade-in">
+                      <span>⚠️ {uploadError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadError(null)}
+                        className="text-rose-400 hover:text-rose-200 text-sm ml-2 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
 
                   {uploadedImageUrl ? (
                     /* Uploaded Image Framer / Cropper */
@@ -1662,6 +1716,23 @@ export const AddPolaroidModal: React.FC<AddPolaroidModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Guest User Authentication Prompt */}
+      <SignInToPostModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+        pendingItem={{
+          type: 'polaroid',
+          title: customTitle.trim() || selectedPreset.title,
+          message: customCaption.trim() || selectedPreset.desc,
+          name: photographer.trim() || 'Cozy Wanderer',
+          imageUrl: currentPhotoPreviewUrl || undefined,
+          gradient: selectedPreset.gradient,
+          date: customDate.trim() || 'TODAY',
+          emoji: (sourceMode === 'camera' && capturedPhotoUrl) || (sourceMode === 'upload' && uploadedImageUrl) ? '📸' : selectedPreset.icon,
+        }}
+      />
     </div>
   );
 };

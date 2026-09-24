@@ -92,15 +92,21 @@ service cloud.firestore {
         && isValidCorkboardNote(incoming())
         && incoming().createdAt == request.time;
 
-      allow update: if isSignedIn()
-        && isValidId(noteId)
+      allow update: if isValidId(noteId)
         && (
           // Action 1: Author modifies note details or board position
           (
-            existing().authorId == request.auth.uid
+            isSignedIn()
+            && existing().authorId == request.auth.uid
             && isValidCorkboardNote(incoming())
             && incoming().authorId == existing().authorId
             && incoming().createdAt == existing().createdAt
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'message', 'color', 'fontClass', 'emoji',
+              'category', 'x', 'y', 'rotation', 'isPolaroid',
+              'polaroidTitle', 'polaroidPhoto', 'polaroidGradient',
+              'polaroidDate', 'washiTapeColor'
+            ])
           )
           ||
           // Action 2: Community reaction stamp (only reactions map may change)

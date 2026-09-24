@@ -5,6 +5,8 @@ import { playChime, playWinFanfare, playPinTackSound, playStampSound, playMechan
 import { AddPolaroidModal } from './AddPolaroidModal';
 import { getWashiTapeOption, FILM_GRAIN_SVG_DATA } from '../data/curatedPolaroids';
 import { useFirebase } from '../firebase/FirebaseContext';
+import { SignInToPostModal } from './SignInToPostModal';
+import { User as FirebaseUser } from 'firebase/auth';
 
 interface CorkboardModalProps {
   isOpen: boolean;
@@ -46,12 +48,20 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'reactions'>('newest');
   const [isPolaroidModalOpen, setIsPolaroidModalOpen] = useState(false);
   const [cardZoom, setCardZoom] = useState<number>(1.0);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [pendingNoteToPost, setPendingNoteToPost] = useState<Omit<
+    CorkboardNote,
+    'id' | 'createdAt' | 'reactions'
+  > | null>(null);
 
-  // Auto-fill author name from Firebase Auth when signed in
+  // Auto-fill author name from Firebase Auth only when authenticated with a real display name
   useEffect(() => {
-    if (user?.displayName) {
+    if (user?.displayName && !user.isAnonymous) {
       setAuthorName(user.displayName);
       setIsAnonymous(false);
+    } else if (user?.isAnonymous) {
+      // Keep isAnonymous true for guest mode
+      setIsAnonymous(true);
     }
   }, [user]);
 
@@ -147,19 +157,53 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
       ? 'Anonymous'
       : (authorName.trim() || 'Anonymous');
 
-    onAddNote({
+    const notePayload: Omit<CorkboardNote, 'id' | 'createdAt' | 'reactions'> = {
       name: finalAuthor,
       message: message.trim(),
       color,
       fontClass,
       emoji,
       category: 'memo',
-    });
+    };
 
+    // Detect that there is no authenticated Firebase user BEFORE attempting Firestore write
+    if (!user) {
+      setPendingNoteToPost(notePayload);
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    onAddNote(notePayload);
     setMessage('');
     playPinTackSound(0.12);
     setTimeout(() => playPaperRustleSound('flutter', 0.08), 80);
     setTimeout(() => playWinFanfare(), 180);
+  };
+
+  const handleAuthSuccess = (signedInUser: FirebaseUser) => {
+    setIsAuthModalOpen(false);
+    if (pendingNoteToPost) {
+      const authorToUse = isAnonymous
+        ? 'Anonymous'
+        : pendingNoteToPost.name !== 'Anonymous'
+        ? pendingNoteToPost.name
+        : signedInUser.displayName || 'Cozy Explorer';
+
+      onAddNote({
+        ...pendingNoteToPost,
+        name: authorToUse,
+      });
+
+      if (!authorName && signedInUser.displayName) {
+        setAuthorName(signedInUser.displayName);
+      }
+
+      setPendingNoteToPost(null);
+      setMessage('');
+      playPinTackSound(0.12);
+      setTimeout(() => playPaperRustleSound('flutter', 0.08), 80);
+      setTimeout(() => playWinFanfare(), 180);
+    }
   };
 
   const getPushpinColor = (idx: number) => {
@@ -246,23 +290,61 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
         <div className="p-4 bg-slate-950/90 border-b border-slate-800">
           <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
             {/* Cloud Sync Status Banner */}
-            <div className="flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded-lg bg-slate-900 border border-slate-800">
-              {user ? (
+            <div className="flex items-center justify-between text-[11px] font-mono px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
+              {user?.isAnonymous ? (
+                <div className="flex items-center justify-between w-full flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5 text-amber-300">
+                    <Cloud className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>
+                      Posting as <strong className="text-white">{authorName}</strong>{' '}
+                      <span className="text-amber-400 font-bold bg-amber-400/20 px-1.5 py-0.5 rounded text-[10px] border border-amber-400/30">
+                        Guest • Live Cloud
+                      </span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await signInWithGoogle();
+                      } catch {
+                        // Handled in context
+                      }
+                    }}
+                    className="text-sky-300 hover:text-sky-200 bg-sky-950/50 hover:bg-sky-900/60 px-2 py-0.5 rounded border border-sky-400/40 flex items-center gap-1.5 cursor-pointer transition text-[10px] active:scale-95"
+                    title="Sign in with Google to link your account, preserve your notes, and sync across devices"
+                  >
+                    <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.15z"/>
+                      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.24v3.15C3.26 21.36 7.34 24 12 24z"/>
+                      <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.24C.45 8.16 0 9.98 0 12s.45 3.84 1.24 5.42l4.04-3.15z"/>
+                      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.24 6.58l4.04 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+                    </svg>
+                    <span>Sign in with Google to Link Account</span>
+                  </button>
+                </div>
+              ) : user ? (
                 <div className="flex items-center gap-1.5 text-emerald-400">
                   <Cloud className="w-3.5 h-3.5" />
                   <span>
-                    Posting as <strong className="text-white">{authorName}</strong> (Firebase Live Cloud)
+                    Posting as <strong className="text-white">{authorName}</strong> ({user.displayName || user.email || 'Google Synced'} • Live Cloud)
                   </span>
                 </div>
               ) : (
                 <div className="flex items-center justify-between w-full">
-                  <span className="text-slate-400">Guest Mode (Local Note)</span>
+                  <span className="text-slate-400">Local Desk Mode</span>
                   <button
                     type="button"
-                    onClick={() => signInWithGoogle()}
-                    className="text-sky-400 hover:text-sky-300 underline flex items-center gap-1"
+                    onClick={async () => {
+                      try {
+                        await signInWithGoogle();
+                      } catch {
+                        // Handled in context
+                      }
+                    }}
+                    className="text-sky-400 hover:text-sky-300 underline flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Sign in with Google to pin live to cloud ☁️</span>
+                    <span>Sign in with Google to post live ☁️</span>
                   </button>
                 </div>
               )}
@@ -549,7 +631,7 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
                             />
                             {note.polaroidFilter === 'cozy-grain' && (
                               <div
-                                style={{ backgroundImage: FILM_GRAIN_SVG_DATA }}
+                                style={{ backgroundImage: `url("${FILM_GRAIN_SVG_DATA}")` }}
                                 className="absolute inset-0 pointer-events-none mix-blend-overlay opacity-30"
                               />
                             )}
@@ -760,6 +842,25 @@ export const CorkboardModal: React.FC<CorkboardModalProps> = ({
         isOpen={isPolaroidModalOpen}
         onClose={() => setIsPolaroidModalOpen(false)}
         onAddPolaroid={onAddNote}
+      />
+
+      {/* Guest User Sign-In Before Firestore Write */}
+      <SignInToPostModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+        pendingItem={
+          pendingNoteToPost
+            ? {
+                type: 'note',
+                name: pendingNoteToPost.name,
+                message: pendingNoteToPost.message,
+                color: pendingNoteToPost.color,
+                fontClass: pendingNoteToPost.fontClass,
+                emoji: pendingNoteToPost.emoji,
+              }
+            : null
+        }
       />
     </div>
   );
